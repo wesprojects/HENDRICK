@@ -628,12 +628,9 @@ function renderVisuals(){
 function renderSchematic(){
   const s = getSettings();
   const svg = document.getElementById('schematicSvg');
-  const allPts = [];
-  PLANE_ORDER.forEach(p => state[p].forEach(h => {
-    const a = actualXY(p, h, s);
-    allPts.push({x: a.x, y: a.y});
-    allPts.push({x: a.deepX, y: a.deepY});
-  }));
+  const waypoints = computeProgram(s).waypoints.map(wp => toPhysicalWaypoint(wp, s));
+
+  const allPts = waypoints.map(w => ({x: w.x, y: w.y}));
   allPts.push({x:0,y:0});
   allPts.push({x:s.panelWidth||1, y:s.panelLength||1});
 
@@ -672,38 +669,51 @@ function renderSchematic(){
   const dimColor = '#5a636b';
   const dimTextColor = '#8b939a';
 
-  // direct toolpath line connecting every hole in drill order (FRONT -> LEFT -> BACK -> RIGHT), drawn first so markers sit on top
-  const orderedPts = [];
-  PLANE_ORDER.forEach(plane => {
-    state[plane].forEach(hole => {
-      const {x,y} = actualXY(plane, hole, s);
-      orderedPts.push({cx: toSvgX(x), cy: toSvgY(y)});
-    });
-  });
-  for (let i = 1; i < orderedPts.length; i++){
-    const a = orderedPts[i-1], b = orderedPts[i];
-    elems += `<line x1="${a.cx}" y1="${a.cy}" x2="${b.cx}" y2="${b.cy}" stroke="#9aa3ab" stroke-width="1.1" opacity="0.6"/>`;
+  // actual toolpath: rapid moves (dashed) and feed moves (solid, colored by plane) - same waypoints as the ISO view, projected top-down
+  // draw in two passes so the dashed rapid/retract-travel path always sits behind the solid cut line, never overlapping on top of it
+  for (let i = 1; i < waypoints.length; i++){
+    const prev = waypoints[i-1], curr = waypoints[i];
+    if (curr.type === 'rapid'){
+      const x1 = toSvgX(prev.x), y1 = toSvgY(prev.y);
+      const x2 = toSvgX(curr.x), y2 = toSvgY(curr.y);
+      elems += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#9aa3ab" stroke-width="1.1" stroke-dasharray="4 3" opacity="0.7"/>`;
+    }
+  }
+  const schematicLabeledDeep = new Set();
+  const schematicLabeledRetract = new Set();
+  for (let i = 1; i < waypoints.length; i++){
+    const prev = waypoints[i-1], curr = waypoints[i];
+    if (curr.type !== 'rapid'){
+      const x1 = toSvgX(prev.x), y1 = toSvgY(prev.y);
+      const x2 = toSvgX(curr.x), y2 = toSvgY(curr.y);
+      const color = COLORS[curr.plane] || '#e6e8ea';
+      elems += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="2.2"/>`;
+      // label anchored at the far end of this segment (target for depth, retract point for retract), not the midpoint, to stay clear of the hole marker/index label
+      if (prev.type === 'rapid'){
+        if (!schematicLabeledDeep.has(curr.plane)){
+          elems += `<text x="${x2+6}" y="${y2+3}" fill="${color}" font-size="7.5" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.holeDepth)} deep</text>`;
+          schematicLabeledDeep.add(curr.plane);
+        }
+      } else {
+        if (!schematicLabeledRetract.has(curr.plane)){
+          elems += `<text x="${x2+6}" y="${y2+3}" fill="${color}" font-size="7.5" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.retract)} retract</text>`;
+          schematicLabeledRetract.add(curr.plane);
+        }
+      }
+    }
   }
 
+  // hole markers + short label, at the panel edge - where the tip enters
   PLANE_ORDER.forEach(plane => {
     const pts = state[plane].map((hole, i) => {
       const a = actualXY(plane, hole, s);
-      return { x: a.x, y: a.y, deepX: a.deepX, deepY: a.deepY, cx: toSvgX(a.x), cy: toSvgY(a.y), dcx: toSvgX(a.deepX), dcy: toSvgY(a.deepY), i };
+      return { x: a.x, y: a.y, cx: toSvgX(a.x), cy: toSvgY(a.y), i };
     });
 
-    // depth segment: from the panel edge (entry) to full hole depth into the material
-    pts.forEach(pt => {
-      elems += `<line x1="${pt.cx}" y1="${pt.cy}" x2="${pt.dcx}" y2="${pt.dcy}" stroke="${COLORS[plane]}" stroke-width="2.2"/>`;
-      elems += `<circle cx="${pt.dcx}" cy="${pt.dcy}" r="2" fill="${COLORS[plane]}"/>`;
-    });
-
-    // marker + short label for every hole (at the panel edge - where the tip enters)
     pts.forEach(pt => {
       elems += `<circle cx="${pt.cx}" cy="${pt.cy}" r="4" fill="${COLORS[plane]}" fill-opacity="0.18" stroke="${COLORS[plane]}" stroke-width="1.3"/>`;
       elems += `<circle cx="${pt.cx}" cy="${pt.cy}" r="1.2" fill="${COLORS[plane]}"/>`;
       elems += `<text x="${pt.cx+7}" y="${pt.cy-7}" fill="${COLORS[plane]}" font-size="9" font-family="IBM Plex Mono">${plane[0]}${pt.i+1}</text>`;
-      const midX = (pt.cx + pt.dcx) / 2, midY = (pt.cy + pt.dcy) / 2;
-      elems += `<text x="${midX+6}" y="${midY+3}" fill="${COLORS[plane]}" font-size="7.5" font-family="IBM Plex Mono" opacity="0.85">${fmt(s.holeDepth)} deep</text>`;
     });
 
     // single dimension per hole: distance from the edge (its corner reference, coordinate 0 along the edge)
@@ -772,12 +782,23 @@ function renderIso(){
   const svg = document.getElementById('isoSvg');
   const W = s.panelWidth || 1, L = s.panelLength || 1, TH = s.thickness || 0.1;
 
+  // With a thin panel relative to its width/length, the true Z extent (thickness, hole depth)
+  // becomes visually imperceptible once projected and scaled to fit. Exaggerate Z only for
+  // display so drilling depth is actually visible - the real geometry (and the g-code) is untouched.
+  const maxRealZ = Math.max(TH, s.safeZ, 0.001);
+  const targetZFraction = 0.35; // Z extent as a fraction of the larger plan-view dimension
+  const naturalRatio = maxRealZ / Math.max(W, L, 0.001);
+  let zExag = naturalRatio < targetZFraction ? targetZFraction / naturalRatio : 1;
+  zExag = Math.min(zExag, 60);
+
+  const proj3 = (x, y, z) => isoProject(x, y, z * zExag, isoView.azimuth, isoView.elevation);
+
   const corners = [
     [0,0,0],[W,0,0],[W,L,0],[0,L,0],
     [0,0,TH],[W,0,TH],[W,L,TH],[0,L,TH],
   ];
   const allPts = corners.concat(waypoints.map(w=>[w.x,w.y,w.z]));
-  const proj = allPts.map(p => isoProject(p[0],p[1],p[2], isoView.azimuth, isoView.elevation));
+  const proj = allPts.map(p => proj3(p[0],p[1],p[2]));
   const xs = proj.map(p=>p[0]), ys = proj.map(p=>p[1]);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -790,7 +811,9 @@ function renderIso(){
   const toX = (x) => offX + x*scale;
   const toY = (y) => offY + y*scale;
 
-  const P = (x,y,z) => { const [sx,sy] = isoProject(x,y,z, isoView.azimuth, isoView.elevation); return [toX(sx), toY(sy)]; };
+  const P = (x,y,z) => { const [sx,sy] = proj3(x,y,z); return [toX(sx), toY(sy)]; };
+  // true-scale (unexaggerated) projection, used only for the little orientation triad
+  const Ptrue = (x,y,z) => { const [sx,sy] = isoProject(x,y,z, isoView.azimuth, isoView.elevation); return [toX(sx), toY(sy)]; };
 
   let elems = `<rect x="0" y="0" width="${viewW}" height="${viewH}" fill="#0e1012" />`;
 
@@ -804,24 +827,46 @@ function renderIso(){
   const bottomFace = [0,1,2,3].map(i => c[i].join(',')).join(' ');
   elems += `<polygon points="${bottomFace}" fill="#000000" fill-opacity="0.15"/>`;
 
-  const origin = P(0,0,0);
+  const origin = Ptrue(0,0,0);
   const axisLen = Math.max(Math.min(W,L)*0.35, TH*4, 1);
-  const ax = P(axisLen, 0, 0);
-  const ay = P(0, axisLen, 0);
-  const az = P(0, 0, axisLen);
+  const ax = Ptrue(axisLen, 0, 0);
+  const ay = Ptrue(0, axisLen, 0);
+  const az = Ptrue(0, 0, axisLen);
   elems += `<line x1="${origin[0]}" y1="${origin[1]}" x2="${ax[0]}" y2="${ax[1]}" stroke="#c0392b" stroke-width="1.5"/><text x="${ax[0]+3}" y="${ax[1]}" fill="#c0392b" font-size="9" font-family="IBM Plex Mono">X</text>`;
   elems += `<line x1="${origin[0]}" y1="${origin[1]}" x2="${ay[0]}" y2="${ay[1]}" stroke="#2e8b57" stroke-width="1.5"/><text x="${ay[0]+3}" y="${ay[1]}" fill="#2e8b57" font-size="9" font-family="IBM Plex Mono">Y</text>`;
   elems += `<line x1="${origin[0]}" y1="${origin[1]}" x2="${az[0]}" y2="${az[1]}" stroke="#4a90d9" stroke-width="1.5"/><text x="${az[0]+3}" y="${az[1]-3}" fill="#4a90d9" font-size="9" font-family="IBM Plex Mono">Z (up)</text>`;
+  if (zExag > 1.05){
+    elems += `<text x="8" y="${viewH-10}" fill="#8b939a" font-size="9" font-family="IBM Plex Mono">Z exaggerated ${fmt(zExag)}&times; for visibility (panel is thin)</text>`;
+  }
 
   for (let i = 1; i < waypoints.length; i++){
     const wpPrev = waypoints[i-1], wp = waypoints[i];
-    const p0 = P(wpPrev.x, wpPrev.y, wpPrev.z);
-    const p1 = P(wp.x, wp.y, wp.z);
     if (wp.type === 'rapid'){
+      const p0 = P(wpPrev.x, wpPrev.y, wpPrev.z);
+      const p1 = P(wp.x, wp.y, wp.z);
       elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="#6b7580" stroke-width="1.2" stroke-dasharray="4 3"/>`;
-    } else {
+    }
+  }
+  const isoLabeledDeep = new Set();
+  const isoLabeledRetract = new Set();
+  for (let i = 1; i < waypoints.length; i++){
+    const wpPrev = waypoints[i-1], wp = waypoints[i];
+    if (wp.type !== 'rapid'){
+      const p0 = P(wpPrev.x, wpPrev.y, wpPrev.z);
+      const p1 = P(wp.x, wp.y, wp.z);
       const color = COLORS[wp.plane] || '#e6e8ea';
       elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="${color}" stroke-width="2.2"/>`;
+      if (wpPrev.type === 'rapid'){
+        if (!isoLabeledDeep.has(wp.plane)){
+          elems += `<text x="${p1[0]+5}" y="${p1[1]}" fill="${color}" font-size="7.5" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.holeDepth)} deep</text>`;
+          isoLabeledDeep.add(wp.plane);
+        }
+      } else {
+        if (!isoLabeledRetract.has(wp.plane)){
+          elems += `<text x="${p1[0]+5}" y="${p1[1]}" fill="${color}" font-size="7.5" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.retract)} retract</text>`;
+          isoLabeledRetract.add(wp.plane);
+        }
+      }
     }
   }
   waypoints.forEach(wp => {
@@ -898,7 +943,7 @@ function computeProgram(sIn){
 
     holes.forEach((hole, i) => {
       let x, y;
-      const depthCoord = approach;
+      const depthCoord = retractPt;
       if (plane.edgeAxis === 'x'){ x = hole.pos; y = depthCoord; }
       else { y = hole.pos; x = depthCoord; }
 
