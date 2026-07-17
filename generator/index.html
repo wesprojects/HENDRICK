@@ -893,7 +893,7 @@ function computeProgram(sIn){
     const edgeRef = edgeRefValue(plane, s);
     const approach = edgeRef - plane.depthSign * s.toolOffset;
     const target = approach + plane.depthSign * s.holeDepth;
-    const retractPt = target - plane.depthSign * s.retract;
+    const retractPt = approach - plane.depthSign * s.retract;
     const holes = state[planeName];
 
     holes.forEach((hole, i) => {
