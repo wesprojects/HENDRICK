@@ -865,7 +865,7 @@ function computeProgram(sIn){
 
     holes.forEach((hole, i) => {
       let x, y;
-      const depthCoord = (i === 0) ? approach : retractPt;
+      const depthCoord = approach;
       if (plane.edgeAxis === 'x'){ x = hole.pos; y = depthCoord; }
       else { y = hole.pos; x = depthCoord; }
 
