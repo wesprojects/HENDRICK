@@ -733,16 +733,12 @@ function renderSchematic(){
       elems += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#9aa3ab" stroke-width="1.1" stroke-dasharray="4 3" opacity="0.7"/>`;
     }
   }
-  const schematicLabeledDeep = new Set();
-  const schematicLabeledRetract = new Set();
   for (let i = 1; i < waypoints.length; i++){
     const prev = waypoints[i-1], curr = waypoints[i];
     if (curr.type !== 'rapid'){
       const color = COLORS[curr.plane] || '#e6e8ea';
       const refs = planeDepthRefs(curr.plane, s);
       const da = refs.depthAxis;
-      const prevDepth = da === 'x' ? prev.x : prev.y;
-      const currDepth = da === 'x' ? curr.x : curr.y;
       const edgeAxisVal = da === 'x' ? prev.y : prev.x; // constant across a single hole's feed move
       const entryPt = da === 'x' ? {x: refs.entry, y: edgeAxisVal} : {x: edgeAxisVal, y: refs.entry};
 
@@ -750,36 +746,38 @@ function renderSchematic(){
       const px2 = toSvgX(curr.x), py2 = toSvgY(curr.y);
       const ex = toSvgX(entryPt.x), ey = toSvgY(entryPt.y);
 
-      // draw as two segments split at the true panel edge, so each portion's visible length matches its label
+      // draw as two segments split at the true panel edge, so the depth-into-material portion
+      // is visually distinct from the retract-clearance portion (no text labels needed here -
+      // hole depth/retract are uniform per plane and already shown in Drilling Parameters above)
       elems += `<line x1="${px1}" y1="${py1}" x2="${ex}" y2="${ey}" stroke="${color}" stroke-width="2.2"/>`;
       elems += `<line x1="${ex}" y1="${ey}" x2="${px2}" y2="${py2}" stroke="${color}" stroke-width="2.2"/>`;
-
-      const prevIsTargetSide = (prevDepth - refs.entry) * refs.depthSign > 0;
-      const deepEndScreen = prevIsTargetSide ? [px1, py1] : [px2, py2];
-      const retractEndScreen = prevIsTargetSide ? [px2, py2] : [px1, py1];
-
-      if (!schematicLabeledDeep.has(curr.plane)){
-        elems += `<text x="${deepEndScreen[0]+7}" y="${deepEndScreen[1]+4}" fill="${color}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.holeDepth)} deep</text>`;
-        schematicLabeledDeep.add(curr.plane);
-      }
-      if (!schematicLabeledRetract.has(curr.plane)){
-        elems += `<text x="${retractEndScreen[0]+7}" y="${retractEndScreen[1]+4}" fill="${color}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.retract)} retract</text>`;
-        schematicLabeledRetract.add(curr.plane);
-      }
     }
   }
 
-  // hole markers + short label, at the panel edge - where the tip enters
+  // hole markers + short label, at the panel edge - where the tip enters.
+  // Label direction depends on the plane's edge orientation, placed opposite the dimension
+  // chain's side - this keeps labels clear of the dimension ticks, and separates FRONT/BACK
+  // labels from LEFT/RIGHT labels even when holes share a corner (e.g. both at position 0).
   PLANE_ORDER.forEach(plane => {
     const pts = state[plane].map((hole, i) => {
       const a = actualXY(plane, hole, s);
       return { x: a.x, y: a.y, cx: toSvgX(a.x), cy: toSvgY(a.y), i };
     });
+    const edgeIsX = PLANES[plane].edgeAxis === 'x';
 
     pts.forEach(pt => {
       elems += `<circle cx="${pt.cx}" cy="${pt.cy}" r="4" fill="${COLORS[plane]}" fill-opacity="0.18" stroke="${COLORS[plane]}" stroke-width="1.3"/>`;
       elems += `<circle cx="${pt.cx}" cy="${pt.cy}" r="1.2" fill="${COLORS[plane]}"/>`;
-      elems += `<text x="${pt.cx+7}" y="${pt.cy-7}" fill="${COLORS[plane]}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono">${plane[0]}${pt.i+1}</text>`;
+      if (edgeIsX){
+        // FRONT/BACK: dimension chain sits above the row, so put the label below it
+        elems += `<text x="${pt.cx+6}" y="${pt.cy+15}" fill="${COLORS[plane]}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono">${plane[0]}${pt.i+1}</text>`;
+      } else if (plane === 'LEFT'){
+        // LEFT: away from the panel is further left
+        elems += `<text x="${pt.cx-8}" y="${pt.cy-7}" text-anchor="end" fill="${COLORS[plane]}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono">${plane[0]}${pt.i+1}</text>`;
+      } else {
+        // RIGHT: away from the panel is further right (mirrors LEFT so the two never converge toward each other)
+        elems += `<text x="${pt.cx+8}" y="${pt.cy-7}" fill="${COLORS[plane]}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono">${plane[0]}${pt.i+1}</text>`;
+      }
     });
 
     // single dimension per plane: distance from the edge (its corner reference, coordinate 0 along the edge) for every hole
@@ -935,15 +933,12 @@ function renderIso(simState){
       elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="#6b7580" stroke-width="1.2" stroke-dasharray="4 3"/>`;
     }
   }
-  const isoLabeledDeep = new Set();
-  const isoLabeledRetract = new Set();
   for (let i = 1; i < waypoints.length; i++){
     const wpPrev = waypoints[i-1], wp = waypoints[i];
     if (wp.type !== 'rapid'){
       const color = COLORS[wp.plane] || '#e6e8ea';
       const refs = planeDepthRefs(wp.plane, s);
       const da = refs.depthAxis;
-      const prevDepth = da === 'x' ? wpPrev.x : wpPrev.y;
       const edgeAxisVal = da === 'x' ? wpPrev.y : wpPrev.x;
       const entryPt3 = da === 'x' ? {x: refs.entry, y: edgeAxisVal, z: wpPrev.z} : {x: edgeAxisVal, y: refs.entry, z: wpPrev.z};
 
@@ -953,19 +948,6 @@ function renderIso(simState){
 
       elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${pe[0]}" y2="${pe[1]}" stroke="${color}" stroke-width="2.2"/>`;
       elems += `<line x1="${pe[0]}" y1="${pe[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="${color}" stroke-width="2.2"/>`;
-
-      const prevIsTargetSide = (prevDepth - refs.entry) * refs.depthSign > 0;
-      const deepEndScreen = prevIsTargetSide ? p0 : p1;
-      const retractEndScreen = prevIsTargetSide ? p1 : p0;
-
-      if (!isoLabeledDeep.has(wp.plane)){
-        elems += `<text x="${deepEndScreen[0]+5}" y="${deepEndScreen[1]}" fill="${color}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.holeDepth)} deep</text>`;
-        isoLabeledDeep.add(wp.plane);
-      }
-      if (!isoLabeledRetract.has(wp.plane)){
-        elems += `<text x="${retractEndScreen[0]+5}" y="${retractEndScreen[1]}" fill="${color}" font-size="${FONT_SIZE}" font-family="IBM Plex Mono" opacity="0.9">${fmt(s.retract)} retract</text>`;
-        isoLabeledRetract.add(wp.plane);
-      }
     }
   }
   waypoints.forEach(wp => {
