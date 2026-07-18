@@ -148,6 +148,10 @@
   }
   .sim-controls input[type="range"]{ flex: 1 1 100px; min-width: 80px; accent-color: var(--amber); }
   .sim-status{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 120px; white-space: nowrap; }
+  .view-controls button.active{ border-color: var(--amber); color: var(--amber); }
+  .sim-xyz{ display:flex; gap:16px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
+  .sim-xyz-item{ font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+  .sim-xyz-item b{ color: var(--text); font-weight: 600; margin-left: 4px; }
   .view-sep{ width:1px; height:16px; background: var(--border); margin: 0 4px; }
   .legend{ display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
   .legend .item{ display:flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
@@ -321,6 +325,8 @@
           <button data-view="schematic" data-action="zoomout">&minus;</button>
           <button data-view="schematic" data-action="reset">Reset view</button>
           <button data-view="schematic" data-action="zoomin">+</button>
+          <span class="view-sep"></span>
+          <button data-view="schematic" data-action="togglewheel">Scroll zoom: Off</button>
         </div>
         <div class="legend">
           <span class="item"><span class="dot" style="background:var(--amber)"></span>FRONT</span>
@@ -345,6 +351,8 @@
       <span class="view-sep"></span>
       <button data-view="iso" data-action="tiltup">Tilt &#9650;</button>
       <button data-view="iso" data-action="tiltdown">Tilt &#9660;</button>
+      <span class="view-sep"></span>
+      <button data-view="iso" data-action="togglewheel">Scroll zoom: Off</button>
     </div>
     <div class="sim-controls">
       <button id="simResetBtn" title="Reset to start">&#9209;</button>
@@ -359,6 +367,11 @@
         <option value="4">4&times;</option>
       </select>
       <span class="sim-status" id="simStatus">Ready</span>
+    </div>
+    <div class="sim-xyz" id="simXYZ">
+      <span class="sim-xyz-item">X <b id="simXVal">&mdash;</b></span>
+      <span class="sim-xyz-item">Y <b id="simYVal">&mdash;</b></span>
+      <span class="sim-xyz-item">Z <b id="simZVal">&mdash;</b></span>
     </div>
     <div class="legend">
       <span class="item"><span class="dash"></span>rapid (G00, above panel)</span>
@@ -424,13 +437,29 @@ function zoomView(svg, view, clientX, clientY, factor){
   view.y = p.y - newScale * localY;
 }
 
-function setupPanZoom(svgId, view, applyOnly){
+function setupPanZoom(svgId, view, viewName){
   const svg = document.getElementById(svgId);
   let dragging = false;
   let start = { x: 0, y: 0 };
   let startView = { x: 0, y: 0 };
+  let wheelZoomEnabled = false;
+
+  const toggleBtn = viewName ? document.querySelector(`button[data-view="${viewName}"][data-action="togglewheel"]`) : null;
+  function updateToggleBtn(){
+    if (!toggleBtn) return;
+    toggleBtn.textContent = 'Scroll zoom: ' + (wheelZoomEnabled ? 'On' : 'Off');
+    toggleBtn.classList.toggle('active', wheelZoomEnabled);
+  }
+  if (toggleBtn){
+    toggleBtn.addEventListener('click', () => {
+      wheelZoomEnabled = !wheelZoomEnabled;
+      updateToggleBtn();
+    });
+    updateToggleBtn();
+  }
 
   svg.addEventListener('wheel', (e) => {
+    if (!wheelZoomEnabled) return; // scroll zoom is off by default - let the page scroll normally
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
     zoomView(svg, view, e.clientX, e.clientY, factor);
@@ -1060,6 +1089,14 @@ function updateSimUI(){
   const state = getSimStateAtTime(simTime);
   document.getElementById('simStatus').textContent = simStatusText(state);
   document.getElementById('simScrub').value = Math.round((simTime / simTotalTime) * 1000) || 0;
+  const xEl = document.getElementById('simXVal'), yEl = document.getElementById('simYVal'), zEl = document.getElementById('simZVal');
+  if (state && state.pos){
+    xEl.textContent = fmt(state.pos.x) + '"';
+    yEl.textContent = fmt(state.pos.y) + '"';
+    zEl.textContent = fmt(state.pos.z) + '"';
+  } else {
+    xEl.textContent = '\u2014'; yEl.textContent = '\u2014'; zEl.textContent = '\u2014';
+  }
 }
 
 function updatePlayButton(){
@@ -1685,8 +1722,8 @@ loadSettings();
 document.querySelectorAll('input[id]').forEach(inp => { if (inp.id !== 'simScrub') inp.addEventListener('input', onSetupFieldChange); });
 updateDerived();
 renderAll();
-setupPanZoom('schematicSvg', schematicView);
-setupPanZoom('isoSvg', isoView);
+setupPanZoom('schematicSvg', schematicView, 'schematic');
+setupPanZoom('isoSvg', isoView, 'iso');
 
 function matchLogoWidthToEyebrow(){
   const logo = document.getElementById('conklinLogo');
