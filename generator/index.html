@@ -1329,8 +1329,52 @@ function drawPanelDiagram(doc, s, x0, y0, maxW, maxH){
     FRONT: [244,166,35], LEFT: [61,220,132], BACK: [90,169,230], RIGHT: [185,140,240]
   };
 
+  // Same coordinate convention as the tick placement below: 0,0 is the rect's bottom-left corner.
+  const toPdfX = (x) => rectX + x*scale;
+  const toPdfY = (y) => rectY + rectH - y*scale;
+
+  // Manual dashing (rather than relying on a jsPDF dash-pattern API) so this works regardless of
+  // the exact jsPDF build/version loaded from the CDN.
+  function dashedLine(x1, y1, x2, y2, dashLen, gapLen){
+    const dx = x2-x1, dy = y2-y1, dist = Math.hypot(dx, dy);
+    if (dist < 0.01) return;
+    const ux = dx/dist, uy = dy/dist;
+    let d = 0;
+    while (d < dist){
+      const segEnd = Math.min(d + dashLen, dist);
+      doc.line(x1+ux*d, y1+uy*d, x1+ux*segEnd, y1+uy*segEnd);
+      d += dashLen + gapLen;
+    }
+  }
+
+  // The actual toolpath - same waypoint data used to generate the g-code and the on-screen
+  // schematic - so this can never drift out of sync with what the machine will actually do.
+  // Drawn first (rapid dashed, then colored depth/retract) so hole markers sit on top of it.
+  const waypoints = computeProgram(s).waypoints.map(wp => toPhysicalWaypoint(wp, s));
+  doc.setDrawColor(160,160,160); doc.setLineWidth(0.6);
+  for (let i = 1; i < waypoints.length; i++){
+    const prev = waypoints[i-1], curr = waypoints[i];
+    if (curr.type === 'rapid'){
+      dashedLine(toPdfX(prev.x), toPdfY(prev.y), toPdfX(curr.x), toPdfY(curr.y), 3, 2);
+    }
+  }
+  for (let i = 1; i < waypoints.length; i++){
+    const prev = waypoints[i-1], curr = waypoints[i];
+    if (curr.type !== 'rapid'){
+      const c = planeColorRGB[curr.plane] || [200,200,200];
+      const refs = planeDepthRefs(curr.plane, s);
+      const da = refs.depthAxis;
+      const edgeAxisVal = da === 'x' ? prev.y : prev.x; // constant across a single hole's feed move
+      const entryPt = da === 'x' ? {x: refs.entry, y: edgeAxisVal} : {x: edgeAxisVal, y: refs.entry};
+      doc.setDrawColor(c[0],c[1],c[2]); doc.setLineWidth(1.4);
+      doc.line(toPdfX(prev.x), toPdfY(prev.y), toPdfX(entryPt.x), toPdfY(entryPt.y));
+      doc.line(toPdfX(entryPt.x), toPdfY(entryPt.y), toPdfX(curr.x), toPdfY(curr.y));
+    }
+  }
+
   function rectX_or_rectXplus(planeName){ return planeName === 'LEFT' ? rectX : rectX + rectW; }
   function rectY_or_rectYplus(planeName){ return planeName === 'FRONT' ? rectY + rectH : rectY; }
+  doc.setLineWidth(1);
 
   // Labels are measured with doc.getTextWidth (actual font metrics) rather than guessed, so the
   // stagger decision is based on real overlap, not an arbitrary fixed gap that doesn't scale with
@@ -1532,7 +1576,11 @@ async function generateCutSheet(){
     y = margin;
     try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', pageW - margin - 110, y - 4, 110, 25.8); } catch(e){}
     label(`PANEL LAYOUT \u2014 TOP VIEW`, margin, y + 8, 12, true);
-    y += 24;
+    y += 22;
+    const activePlanesForOrder = PLANE_ORDER.filter(p => state[p].length > 0);
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+    doc.text('Drilling order:  ' + (activePlanesForOrder.length ? activePlanesForOrder.join('  \u2192  ') : '(no holes)'), margin, y);
+    y += 18;
     const diagramTop = y;
     const legendY = pageH - margin - 8;
     const captionY = legendY - 13;
