@@ -1422,12 +1422,22 @@ async function generateCutSheet(){
       doc.text(`Page ${pageNum} of ${totalPages}`, pageW/2, pageH - 20, { align: 'center' });
     };
 
-    // header
-    try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', margin, y - 6, 140, 43.6); } catch(e){}
-    label('DRILLING CUT SHEET', pageW - margin, y + 8, 16, true);
-    label('Generated ' + nowStamp(), pageW - margin, y + 24, 9, false, [120,120,120]);
-    doc.text('OSAI 10 Series  \u00b7  Hendrick HSR', pageW - margin, y + 37, { align: 'right' });
-    y += 56; hr(y); y += 22;
+    // header - mirrors the app's layout: title/info on the left, logo+eyebrow+badge stacked on the right
+    label('DRILLING CUT SHEET', margin, y + 8, 16, true);
+    label('Generated ' + nowStamp(), margin, y + 24, 9, false, [120,120,120]);
+    doc.text('OSAI 10 Series  \u00b7  Hendrick HSR', margin, y + 37);
+
+    try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', pageW - margin - 110, y - 8, 110, 34.3); } catch(e){}
+    label('CONKLIN PRODUCT DEVELOPMENT', pageW - margin, y + 32, 8, true, [140,140,140]);
+    const badgeText = 'FRONT \u2192 LEFT \u2192 BACK \u2192 RIGHT';
+    doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    const badgeW = doc.getTextWidth(badgeText) + 12;
+    const badgeY = y + 39;
+    doc.setDrawColor(190); doc.setLineWidth(0.75);
+    doc.rect(pageW - margin - badgeW, badgeY, badgeW, 15);
+    doc.setTextColor(100,100,100);
+    doc.text(badgeText, pageW - margin - 6, badgeY + 10, { align: 'right' });
+    y += 62; hr(y); y += 22;
 
     // job / file
     label('JOB: ' + (s.jobName ? s.jobName : '(untitled)'), margin, y, 14, true);
