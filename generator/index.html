@@ -1309,11 +1309,15 @@ document.getElementById('downloadBtn').onclick = () => {
 
 function drawPanelDiagram(doc, s, x0, y0, maxW, maxH){
   const padLabel = 58; // room reserved around the panel rect for tick marks + labels (must exceed the stagger offset below)
-  const drawX0 = x0 + padLabel, drawY0 = y0 + padLabel;
   const drawW = Math.max(maxW - 2*padLabel, 10), drawH = Math.max(maxH - 2*padLabel, 10);
   const W = s.panelWidth || 1, L = s.panelLength || 1;
-  const scaleX = drawW / W, scaleY = drawH / L;
-  const rectX = drawX0, rectY = drawY0, rectW = W*scaleX, rectH = L*scaleY;
+  // Uniform scale (not independent per axis) so the drawn rectangle is dimensionally accurate -
+  // it actually reflects the panel's real width:length ratio instead of being stretched to fill a box.
+  const scale = Math.min(drawW / W, drawH / L);
+  const rectW = W*scale, rectH = L*scale;
+  // center the (now possibly smaller than the reserved area) rect within the available space
+  const rectX = x0 + padLabel + (drawW - rectW)/2;
+  const rectY = y0 + padLabel + (drawH - rectH)/2;
 
   doc.setDrawColor(120); doc.setLineWidth(1);
   doc.rect(rectX, rectY, rectW, rectH);
@@ -1338,7 +1342,7 @@ function drawPanelDiagram(doc, s, x0, y0, maxW, maxH){
     const sortKey = isVerticalEdge ? (p => L - p.pos) : (p => p.pos); // sort along the physical edge direction
     pts.sort((a,b) => sortKey(a) - sortKey(b));
     const coordFor = (p) => {
-      const raw = isVerticalEdge ? (rectY + rectH - p.pos*scaleY) : (rectX + p.pos*scaleX);
+      const raw = isVerticalEdge ? (rectY + rectH - p.pos*scale) : (rectX + p.pos*scale);
       const lo = isVerticalEdge ? y0 + 2 : x0 + 2;
       const hi = isVerticalEdge ? y0 + maxH - 2 : x0 + maxW - 2;
       return Math.min(hi, Math.max(lo, raw));
@@ -1430,22 +1434,13 @@ async function generateCutSheet(){
       doc.text(`Page ${pageNum} of ${totalPages}`, pageW/2, pageH - 20, { align: 'center' });
     };
 
-    // header - mirrors the app's layout: title/info on the left, logo+eyebrow+badge stacked on the right
+    // header - title/info on the left, logo on the right
     label('DRILLING CUT SHEET', margin, y + 8, 16, true);
     label('Generated ' + nowStamp(), margin, y + 24, 9, false, [120,120,120]);
     doc.text('OSAI 10 Series  \u00b7  Hendrick HSR', margin, y + 37);
 
     try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', pageW - margin - 110, y - 4, 110, 25.8); } catch(e){}
-    label('CONKLIN PRODUCT DEVELOPMENT', pageW - margin, y + 32, 8, true, [140,140,140]);
-    const badgeText = 'FRONT \u2192 LEFT \u2192 BACK \u2192 RIGHT';
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    const badgeW = doc.getTextWidth(badgeText) + 12;
-    const badgeY = y + 39;
-    doc.setDrawColor(190); doc.setLineWidth(0.75);
-    doc.rect(pageW - margin - badgeW, badgeY, badgeW, 15);
-    doc.setTextColor(100,100,100);
-    doc.text(badgeText, pageW - margin - 6, badgeY + 10, { align: 'right' });
-    y += 62; hr(y); y += 22;
+    y += 45; hr(y); y += 22;
 
     // job / file
     label('JOB: ' + (s.jobName ? s.jobName : '(untitled)'), margin, y, 14, true);
@@ -1528,12 +1523,16 @@ async function generateCutSheet(){
     doc.text('Notes:', margin, y);
     doc.setDrawColor(220);
     for (let i=0; i<2; i++){ y += 15; doc.line(margin, y, pageW-margin, y); }
-    y += 18;
-    hr(y); y += 20;
 
-    // panel diagram - native vector drawing from data, fills whatever space remains on the page
-    label(`PANEL LAYOUT \u2014 TOP VIEW`, margin, y, 11, true);
-    y += 12;
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+    doc.text('Page 1 of 2', pageW/2, pageH - 20, { align: 'center' });
+
+    // page 2: panel diagram, native vector drawing from data, given the full page for accuracy
+    doc.addPage();
+    y = margin;
+    try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', pageW - margin - 110, y - 4, 110, 25.8); } catch(e){}
+    label(`PANEL LAYOUT \u2014 TOP VIEW`, margin, y + 8, 12, true);
+    y += 24;
     const diagramTop = y;
     const legendY = pageH - margin - 8;
     const captionY = legendY - 13;
@@ -1544,7 +1543,7 @@ async function generateCutSheet(){
     drawLegend(doc, margin, legendY);
 
     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(150,150,150);
-    doc.text('Page 1 of 1', pageW/2, pageH - 20, { align: 'center' });
+    doc.text('Page 2 of 2', pageW/2, pageH - 20, { align: 'center' });
 
     const base = sanitizeFilename(s.jobName) || 'camlock_holes';
     doc.save(base + '_cutsheet.pdf');
