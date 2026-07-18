@@ -216,8 +216,9 @@
         <div class="derived">Distance pulled back from full hole depth, along X or Y, before the next rapid move.</div>
       </div>
       <div class="field">
-        <label>Safe Z (fixed, between planes)</label>
+        <label>Safe Z clearance (above panel)</label>
         <input id="g-safez" type="text" value="2">
+        <div class="derived">Added to panel thickness. Rapid/safe Z = thickness + clearance = <b id="safeZDerived">2.375</b></div>
       </div>
       <div class="field">
         <label>Spindle speed (RPM)</label>
@@ -613,6 +614,7 @@ function loadSettings(){
 function updateDerived(){
   const th = num('g-thickness', 0);
   document.getElementById('zDerived').textContent = fmt(th/2);
+  document.getElementById('safeZDerived').textContent = fmt(th + num('g-safez', 2));
 }
 function onSetupFieldChange(){
   updateDerived();
@@ -1148,12 +1150,13 @@ document.getElementById('settingsToggle').onclick = () => {
 /* ---------- core generator (shared by text output + both visuals) ----------
    Z0 = bottom face of the panel. +Z travels upward.
    Drill Z (center of thickness) = thickness / 2.
-   Safe/rapid Z between planes = fixed value (g-safez), independent of thickness.
+   Safe/rapid Z between planes = panel thickness + safe Z clearance, so it always clears the
+   panel's top face regardless of thickness (the clearance value itself, g-safez, stays fixed).
    Retract (X/Y) = distance pulled back from full hole depth before the next rapid move. */
 function computeProgram(sIn){
   const s = sIn || getSettings();
   const drillZ = s.thickness / 2;
-  const safeZ = s.safeZ;
+  const safeZ = s.thickness + s.safeZ;
   let n = 100;
   const lines = [];
   const waypoints = [];
@@ -1450,7 +1453,7 @@ async function generateCutSheet(){
       `Panel: ${fmt(s.panelWidth)}" W  \u00d7  ${fmt(s.panelLength)}" L  \u00d7  ${fmt(s.thickness)}" thick`,
       `Tool offset: ${fmt(s.toolOffset)}"`,
       `Hole depth: ${fmt(s.holeDepth)}"      Retract: ${fmt(s.retract)}"`,
-      `Drill Z (center): ${fmt(s.thickness/2)}"      Safe Z: ${fmt(s.safeZ)}"`,
+      `Drill Z (center): ${fmt(s.thickness/2)}"      Safe Z clearance: ${fmt(s.safeZ)}"  (rapid Z = ${fmt(s.thickness + s.safeZ)}")`,
       `Total retract travel per hole: ${fmt(s.holeDepth + s.retract)}"  (every hole clears the panel by ${fmt(s.retract)}" before repositioning)`,
     ].forEach(l => { label(l, col2X, y2, 9.5, false); y2 += 14; });
 
