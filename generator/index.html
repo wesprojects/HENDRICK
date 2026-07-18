@@ -136,6 +136,18 @@
     font-family: var(--mono); font-size: 11px; padding: 5px 9px; border-radius: 3px; cursor:pointer;
   }
   .view-controls button:hover{ border-color: var(--text-dim); }
+  .sim-controls{ display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; padding-top:10px; border-top:1px solid var(--border); }
+  .sim-controls button{
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    font-size: 13px; padding: 6px 10px; border-radius: 3px; cursor:pointer; line-height:1;
+  }
+  .sim-controls button:hover{ border-color: var(--amber); }
+  .sim-controls select{
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 11px; padding: 5px 6px; border-radius: 3px; cursor:pointer;
+  }
+  .sim-controls input[type="range"]{ flex: 1 1 100px; min-width: 80px; accent-color: var(--amber); }
+  .sim-status{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 120px; white-space: nowrap; }
   .view-sep{ width:1px; height:16px; background: var(--border); margin: 0 4px; }
   .legend{ display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
   .legend .item{ display:flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
@@ -333,12 +345,27 @@
       <button data-view="iso" data-action="tiltup">Tilt &#9650;</button>
       <button data-view="iso" data-action="tiltdown">Tilt &#9660;</button>
     </div>
+    <div class="sim-controls">
+      <button id="simResetBtn" title="Reset to start">&#9209;</button>
+      <button id="simStepBackBtn" title="Step back one move">&#9198;</button>
+      <button id="simPlayBtn" title="Play / Pause simulation">&#9658;</button>
+      <button id="simStepFwdBtn" title="Step forward one move">&#9197;</button>
+      <input type="range" id="simScrub" min="0" max="1000" value="0" step="1">
+      <select id="simSpeed" title="Playback speed">
+        <option value="0.5">0.5&times;</option>
+        <option value="1" selected>1&times;</option>
+        <option value="2">2&times;</option>
+        <option value="4">4&times;</option>
+      </select>
+      <span class="sim-status" id="simStatus">Ready</span>
+    </div>
     <div class="legend">
       <span class="item"><span class="dash"></span>rapid (G00, above panel)</span>
       <span class="item"><span class="dot" style="background:var(--amber)"></span>FRONT feed</span>
       <span class="item"><span class="dot" style="background:var(--green)"></span>LEFT feed</span>
       <span class="item"><span class="dot" style="background:var(--blue)"></span>BACK feed</span>
       <span class="item"><span class="dot" style="background:var(--violet)"></span>RIGHT feed</span>
+      <span class="item"><span class="dot" style="background:#ffffff"></span>tool position</span>
     </div>
   </div>
 
@@ -564,7 +591,7 @@ function planeDepthRefs(planeName, s){
 function saveSettings(){
   const obj = {};
   document.querySelectorAll('input[id]').forEach(inp => {
-    if (inp.id === 'g-jobname') return; // job name is job-specific, not a persisted machine/setup value
+    if (inp.id === 'g-jobname' || inp.id === 'simScrub') return; // job-specific / transient playback UI, not persisted
     obj[inp.id] = (inp.type === 'checkbox') ? inp.checked : inp.value;
   });
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch(e){ /* storage unavailable */ }
@@ -575,7 +602,7 @@ function loadSettings(){
     if (!raw) return;
     const obj = JSON.parse(raw);
     Object.keys(obj).forEach(id => {
-      if (id === 'g-jobname') return;
+      if (id === 'g-jobname' || id === 'simScrub') return;
       const el = document.getElementById(id);
       if (!el) return;
       if (el.type === 'checkbox') el.checked = !!obj[id];
@@ -643,7 +670,11 @@ document.querySelectorAll('.add-btn').forEach(btn => {
 
 function renderVisuals(){
   renderSchematic();
+  pauseSim();
+  rebuildSimSegments();
+  simTime = 0;
   renderIso();
+  updateSimUI();
 }
 
 /* ---------- top-down schematic ---------- */
@@ -835,7 +866,7 @@ function toPhysicalWaypoint(wp, s){
   return { ...wp, y: wp.y + correction };
 }
 
-function renderIso(){
+function renderIso(simState){
   const s = getSettings();
   const waypoints = computeProgram(s).waypoints.map(wp => toPhysicalWaypoint(wp, s));
   const svg = document.getElementById('isoSvg');
@@ -944,9 +975,180 @@ function renderIso(){
     }
   });
 
+  // simulation: highlight the segment currently being traversed and mark the tool's current position
+  if (simState && simState.pos && simSegments[simState.segIndex]){
+    const seg = simSegments[simState.segIndex];
+    const p0 = P(seg.a.x, seg.a.y, seg.a.z);
+    const p1 = P(simState.pos.x, simState.pos.y, simState.pos.z);
+    if (seg.type === 'rapid'){
+      elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="#ffffff" stroke-width="2" stroke-dasharray="3 2" opacity="0.95"/>`;
+    } else {
+      elems += `<line x1="${p0[0]}" y1="${p0[1]}" x2="${p1[0]}" y2="${p1[1]}" stroke="#ffffff" stroke-width="3.4" opacity="0.95"/>`;
+    }
+    const mp = P(simState.pos.x, simState.pos.y, simState.pos.z);
+    elems += `<circle cx="${mp[0]}" cy="${mp[1]}" r="6.5" fill="#ffffff" stroke="#14171a" stroke-width="1.5"/>`;
+    elems += `<circle cx="${mp[0]}" cy="${mp[1]}" r="2.2" fill="#14171a"/>`;
+  }
+
   svg.innerHTML = `<g class="pan-zoom-group">${elems}</g>`;
   applyGroupTransform(svg, isoView);
 }
+
+/* ---------- toolpath simulation (ISO view) ----------
+   Builds a timeline over the same physical waypoints used to draw the static path, so the
+   simulation can never drift out of sync with what's actually being drawn or generated.
+   Rapid moves animate fast; feed moves animate at a speed derived from the programmed feed
+   rates, so a faster feed rate visibly moves faster - this is for visual verification, not a
+   literal real-time reproduction of machine timing. */
+let simSegments = [];
+let simTotalTime = 0.001;
+let simTime = 0;
+let simPlaying = false;
+let simSpeed = 1;
+let simLastTs = null;
+let simRafId = null;
+
+function buildSimSegments(waypoints, s){
+  const RAPID_SPEED = 340;
+  const feedInRate = Math.max(parseFloat(s.feedIn) || 100, 1);
+  const feedOutRate = Math.max(parseFloat(s.feedOut) || 100, 1);
+  const feedSpeed = ((feedInRate + feedOutRate) / 2) * 1.3;
+  const segments = [];
+  let cum = 0;
+  for (let i = 1; i < waypoints.length; i++){
+    const a = waypoints[i-1], b = waypoints[i];
+    const dist = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+    const speed = b.type === 'rapid' ? RAPID_SPEED : feedSpeed;
+    const duration = Math.max(dist / speed, 0.035);
+    segments.push({ a, b, dist, duration, cumStart: cum, cumEnd: cum + duration, type: b.type, plane: b.plane });
+    cum += duration;
+  }
+  return { segments, totalTime: Math.max(cum, 0.001) };
+}
+
+function rebuildSimSegments(){
+  const s = getSettings();
+  const waypoints = computeProgram(s).waypoints.map(wp => toPhysicalWaypoint(wp, s));
+  const built = buildSimSegments(waypoints, s);
+  simSegments = built.segments;
+  simTotalTime = built.totalTime;
+}
+
+function getSimStateAtTime(time){
+  if (simSegments.length === 0) return null;
+  if (time <= 0){
+    const first = simSegments[0];
+    return { pos: { x: first.a.x, y: first.a.y, z: first.a.z }, segIndex: 0 };
+  }
+  if (time >= simTotalTime){
+    const last = simSegments[simSegments.length - 1];
+    return { pos: { x: last.b.x, y: last.b.y, z: last.b.z }, segIndex: simSegments.length - 1 };
+  }
+  for (let i = 0; i < simSegments.length; i++){
+    const seg = simSegments[i];
+    if (time >= seg.cumStart && time <= seg.cumEnd){
+      const t = seg.duration > 0 ? (time - seg.cumStart) / seg.duration : 1;
+      return {
+        pos: { x: seg.a.x + (seg.b.x - seg.a.x)*t, y: seg.a.y + (seg.b.y - seg.a.y)*t, z: seg.a.z + (seg.b.z - seg.a.z)*t },
+        segIndex: i,
+      };
+    }
+  }
+  return null;
+}
+
+function simStatusText(state){
+  if (!state || simSegments.length === 0) return 'No holes to simulate';
+  const seg = simSegments[state.segIndex];
+  if (!seg) return '';
+  const moveWord = seg.type === 'rapid' ? 'Rapid' : 'Feeding';
+  const pct = Math.round((simTime / simTotalTime) * 100);
+  return `${moveWord} \u2014 ${seg.plane || ''}  (${pct}%)`;
+}
+
+function updateSimUI(){
+  const state = getSimStateAtTime(simTime);
+  document.getElementById('simStatus').textContent = simStatusText(state);
+  document.getElementById('simScrub').value = Math.round((simTime / simTotalTime) * 1000) || 0;
+}
+
+function updatePlayButton(){
+  document.getElementById('simPlayBtn').innerHTML = simPlaying ? '&#10074;&#10074;' : '&#9658;';
+}
+
+function renderSimFrame(){
+  const state = getSimStateAtTime(simTime);
+  renderIso(state);
+  updateSimUI();
+}
+
+function pauseSim(){
+  simPlaying = false;
+  simLastTs = null;
+  if (simRafId) cancelAnimationFrame(simRafId);
+  updatePlayButton();
+}
+
+function playSim(){
+  if (simSegments.length === 0) rebuildSimSegments();
+  if (simSegments.length === 0) return; // nothing to simulate
+  if (simTime >= simTotalTime) simTime = 0;
+  simPlaying = true;
+  simLastTs = null;
+  updatePlayButton();
+  simRafId = requestAnimationFrame(simStep);
+}
+
+function simStep(ts){
+  if (!simPlaying) return;
+  if (simLastTs === null) simLastTs = ts;
+  const dt = ((ts - simLastTs) / 1000) * simSpeed;
+  simLastTs = ts;
+  simTime += dt;
+  if (simTime >= simTotalTime){
+    simTime = simTotalTime;
+    simPlaying = false;
+    updatePlayButton();
+  }
+  renderSimFrame();
+  if (simPlaying) simRafId = requestAnimationFrame(simStep);
+}
+
+function simStepForward(){
+  pauseSim();
+  const state = getSimStateAtTime(simTime);
+  const idx = state ? state.segIndex : 0;
+  const nextIdx = Math.min(idx + 1, simSegments.length - 1);
+  simTime = simSegments.length ? simSegments[nextIdx].cumEnd : 0;
+  renderSimFrame();
+}
+
+function simStepBack(){
+  pauseSim();
+  const state = getSimStateAtTime(simTime);
+  const idx = state ? state.segIndex : 0;
+  const prevIdx = Math.max(idx - 1, 0);
+  simTime = simSegments.length ? simSegments[prevIdx].cumStart : 0;
+  renderSimFrame();
+}
+
+function simReset(){
+  pauseSim();
+  simTime = 0;
+  renderSimFrame();
+}
+
+document.getElementById('simPlayBtn').addEventListener('click', () => { simPlaying ? pauseSim() : playSim(); });
+document.getElementById('simStepFwdBtn').addEventListener('click', simStepForward);
+document.getElementById('simStepBackBtn').addEventListener('click', simStepBack);
+document.getElementById('simResetBtn').addEventListener('click', simReset);
+document.getElementById('simSpeed').addEventListener('change', (e) => { simSpeed = parseFloat(e.target.value) || 1; });
+document.getElementById('simScrub').addEventListener('input', (e) => {
+  pauseSim();
+  const frac = parseInt(e.target.value, 10) / 1000;
+  simTime = frac * simTotalTime;
+  renderSimFrame();
+});
 
 document.getElementById('settingsToggle').onclick = () => {
   const body = document.getElementById('settingsBody');
@@ -1109,52 +1311,97 @@ document.getElementById('downloadBtn').onclick = () => {
   URL.revokeObjectURL(url);
 };
 
-/* ---------- cut sheet (PDF) ---------- */
-// The on-screen viewports use a dark theme; for a printed page we swap in print-friendly
-// colors (white background, darker grays) rather than reproduce the screen 1:1.
-const PRINT_COLOR_MAP = {
-  '#0e1012': '#ffffff',
-  '#1e2328': '#e3e5e7',
-  '#4a525a': '#8a8f94',
-  '#8b939a': '#6b6f73',
-  '#9aa3ab': '#767b80',
-  '#3a4148': '#9a9fa4',
-  '#6b7580': '#767b80',
-  '#555f68': '#4a4f54',
-  '#5a636b': '#4a4f54',
-};
+/* ---------- cut sheet (PDF) ----------
+   Built entirely from the underlying data with native PDF vector drawing (text/lines/rects) -
+   not a screenshot of the on-screen widgets. This keeps it print-sized, legible, and immune to
+   the on-screen viewport's pan/zoom/label-density, which is tuned for a small screen area, not a page. */
 
-function getCleanSvgStringForPrint(svgId){
-  const svg = document.getElementById(svgId);
-  const clone = svg.cloneNode(true);
-  const group = clone.querySelector('.pan-zoom-group');
-  if (group) group.setAttribute('transform', 'translate(0,0) scale(1)');
-  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  clone.querySelectorAll('*').forEach(el => {
-    ['fill','stroke'].forEach(attr => {
-      const v = el.getAttribute(attr);
-      if (v && PRINT_COLOR_MAP[v]) el.setAttribute(attr, PRINT_COLOR_MAP[v]);
+function drawPanelDiagram(doc, s, x0, y0, maxW, maxH){
+  const padLabel = 40; // room reserved around the panel rect for tick marks + labels
+  const drawX0 = x0 + padLabel, drawY0 = y0 + padLabel;
+  const drawW = Math.max(maxW - 2*padLabel, 10), drawH = Math.max(maxH - 2*padLabel, 10);
+  const W = s.panelWidth || 1, L = s.panelLength || 1;
+  const scaleX = drawW / W, scaleY = drawH / L;
+  const rectX = drawX0, rectY = drawY0, rectW = W*scaleX, rectH = L*scaleY;
+
+  doc.setDrawColor(120); doc.setLineWidth(1);
+  doc.rect(rectX, rectY, rectW, rectH);
+  doc.setFontSize(8); doc.setTextColor(140,140,140); doc.setFont('helvetica','normal');
+  doc.text('0,0', rectX - 4, rectY + rectH + 4, { align: 'right' });
+  doc.circle(rectX, rectY + rectH, 1.5, 'F');
+
+  const planeColorRGB = {
+    FRONT: [244,166,35], LEFT: [61,220,132], BACK: [90,169,230], RIGHT: [185,140,240]
+  };
+
+  function drawEdge(planeName, tickFn, labelFn, isVerticalEdge){
+    const holes = state[planeName];
+    if (holes.length === 0) return;
+    const pts = holes.map((h,i) => ({ pos: h.pos, idx: i }));
+    const sortKey = isVerticalEdge ? (p => L - p.pos) : (p => p.pos); // sort along the physical edge direction
+    pts.sort((a,b) => sortKey(a) - sortKey(b));
+    const coordFor = (p) => {
+      const raw = isVerticalEdge ? (rectY + rectH - p.pos*scaleY) : (rectX + p.pos*scaleX);
+      const lo = isVerticalEdge ? y0 + 2 : x0 + 2;
+      const hi = isVerticalEdge ? y0 + maxH - 2 : x0 + maxW - 2;
+      return Math.min(hi, Math.max(lo, raw));
+    };
+    const c = planeColorRGB[planeName];
+    let prevCoord = null, stagger = 0;
+    pts.forEach(p => {
+      const coord = coordFor(p);
+      const gapNeeded = 16;
+      if (prevCoord !== null && Math.abs(coord - prevCoord) < gapNeeded){
+        stagger = stagger === 0 ? 1 : 0;
+      } else {
+        stagger = 0;
+      }
+      doc.setDrawColor(c[0],c[1],c[2]);
+      doc.setFillColor(c[0],c[1],c[2]);
+      tickFn(coord);
+      doc.circle(...(isVerticalEdge ? [rectX_or_rectXplus(planeName), coord] : [coord, rectY_or_rectYplus(planeName)]), 2.4, 'F');
+      doc.setTextColor(c[0],c[1],c[2]); doc.setFontSize(8);
+      labelFn(coord, stagger, `${planeName[0]}${p.idx+1}: ${fmt(p.pos)}"`);
+      prevCoord = coord;
     });
-  });
-  return new XMLSerializer().serializeToString(clone);
+  }
+  function rectX_or_rectXplus(planeName){ return planeName === 'LEFT' ? rectX : rectX + rectW; }
+  function rectY_or_rectYplus(planeName){ return planeName === 'FRONT' ? rectY + rectH : rectY; }
+
+  // FRONT: bottom edge (Y=0), ticks/labels below
+  drawEdge('FRONT',
+    (coord) => { doc.line(coord, rectY+rectH, coord, rectY+rectH+6); },
+    (coord, stagger, txt) => { doc.text(txt, coord, rectY+rectH+16+stagger*11, { align: 'center' }); },
+    false);
+  // BACK: top edge (Y=length), ticks/labels above
+  drawEdge('BACK',
+    (coord) => { doc.line(coord, rectY, coord, rectY-6); },
+    (coord, stagger, txt) => { doc.text(txt, coord, rectY-9-stagger*11, { align: 'center' }); },
+    false);
+  // LEFT: left edge (X=0), ticks/labels to the left
+  drawEdge('LEFT',
+    (coord) => { doc.line(rectX, coord, rectX-6, coord); },
+    (coord, stagger, txt) => { doc.text(txt, rectX-9-stagger*46, coord+3, { align: 'right' }); },
+    true);
+  // RIGHT: right edge (X=width), ticks/labels to the right
+  drawEdge('RIGHT',
+    (coord) => { doc.line(rectX+rectW, coord, rectX+rectW+6, coord); },
+    (coord, stagger, txt) => { doc.text(txt, rectX+rectW+9+stagger*46, coord+3, { align: 'left' }); },
+    true);
+
+  return rectY + rectH + 46; // bottom edge of the labels, for layout purposes below
 }
 
-function svgToPngDataUri(svgString, pxWidth, pxHeight){
-  return new Promise((resolve, reject) => {
-    const svg64 = btoa(unescape(encodeURIComponent(svgString)));
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = pxWidth;
-      canvas.height = pxHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, pxWidth, pxHeight);
-      ctx.drawImage(img, 0, 0, pxWidth, pxHeight);
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = reject;
-    img.src = 'data:image/svg+xml;base64,' + svg64;
+function drawLegend(doc, x, y){
+  const items = [['FRONT',[244,166,35]],['LEFT',[61,220,132]],['BACK',[90,169,230]],['RIGHT',[185,140,240]]];
+  let cx = x;
+  doc.setFontSize(8.5);
+  items.forEach(([name, c]) => {
+    doc.setFillColor(c[0],c[1],c[2]);
+    doc.circle(cx, y-3, 3, 'F');
+    doc.setTextColor(90,90,90); doc.setFont('helvetica','normal');
+    doc.text(name, cx+7, y);
+    cx += doc.getTextWidth(name) + 30;
   });
 }
 
@@ -1170,85 +1417,93 @@ async function generateCutSheet(){
     const pageW = 612, pageH = 792, margin = 40;
     let y = margin;
 
-    const line = (yPos) => { doc.setDrawColor(210); doc.setLineWidth(0.75); doc.line(margin, yPos, pageW - margin, yPos); };
-    const label = (text, x, yy, size, bold) => {
+    const hr = (yPos) => { doc.setDrawColor(210); doc.setLineWidth(0.75); doc.line(margin, yPos, pageW - margin, yPos); };
+    const label = (text, x, yy, size, bold, color) => {
       doc.setFont('helvetica', bold ? 'bold' : 'normal');
       doc.setFontSize(size);
-      doc.setTextColor(30, 30, 30);
+      const c = color || [30,30,30];
+      doc.setTextColor(c[0], c[1], c[2]);
       doc.text(text, x, yy);
     };
+    const footer = (pageNum, totalPages) => {
+      doc.setPage(pageNum);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(150,150,150);
+      doc.text(`Page ${pageNum} of ${totalPages}`, pageW/2, pageH - 20, { align: 'center' });
+    };
 
-    // header: logo + title + timestamp
-    try {
-      doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', margin, y - 6, 140, 43.6);
-    } catch(e) { /* logo optional - continue without it if it fails to embed */ }
+    // header
+    try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', margin, y - 6, 140, 43.6); } catch(e){}
     label('DRILLING CUT SHEET', pageW - margin, y + 8, 16, true);
-    doc.setTextColor(120,120,120);
-    doc.setFont('helvetica','normal'); doc.setFontSize(9);
-    doc.text('Generated ' + nowStamp(), pageW - margin, y + 24, { align: 'right' });
+    label('Generated ' + nowStamp(), pageW - margin, y + 24, 9, false, [120,120,120]);
     doc.text('OSAI 10 Series  \u00b7  Hendrick HSR', pageW - margin, y + 37, { align: 'right' });
-    y += 56;
-    line(y); y += 22;
+    y += 56; hr(y); y += 22;
 
-    // job name + filename
+    // job / file
     label('JOB: ' + (s.jobName ? s.jobName : '(untitled)'), margin, y, 14, true);
-    doc.setTextColor(120,120,120);
-    doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(120,120,120);
     doc.text('File: ' + getFilename(s), pageW - margin, y, { align: 'right' });
     y += 22;
 
-    // machine / program + panel / drilling params, two columns
-    const colGap = 20;
-    const colW = (pageW - 2*margin - colGap) / 2;
-    const col1X = margin, col2X = margin + colW + colGap;
+    // two-column parameter block
+    const colGap = 20, colW = (pageW - 2*margin - colGap)/2, col1X = margin, col2X = margin + colW + colGap;
     const yTop = y;
-
     label('MACHINE / PROGRAM', col1X, y, 10, true); y += 15;
-    const machineLines = [
+    [
       `Tool #: ${s.tool}      Origin (UAO): ${s.origin}`,
       `Spindle: ${s.spindle} RPM`,
       `Dust hood (M49): ${s.dropDustHood ? 'DROPS after G70' : 'STAYS UP'}`,
       `Feed in: ${s.feedIn}      Feed out: ${s.feedOut}`,
       `Park Y (end of program): ${s.parkY}`,
-    ];
-    machineLines.forEach(l => { label(l, col1X, y, 9.5, false); y += 14; });
+    ].forEach(l => { label(l, col1X, y, 9.5, false); y += 14; });
 
     let y2 = yTop;
     label('PANEL & DRILLING PARAMETERS', col2X, y2, 10, true); y2 += 15;
-    const panelLines = [
+    [
       `Panel: ${fmt(s.panelWidth)}" W  \u00d7  ${fmt(s.panelLength)}" L  \u00d7  ${fmt(s.thickness)}" thick`,
       `Tool offset: ${fmt(s.toolOffset)}"`,
       `Hole depth: ${fmt(s.holeDepth)}"      Retract: ${fmt(s.retract)}"`,
       `Drill Z (center): ${fmt(s.thickness/2)}"      Safe Z: ${fmt(s.safeZ)}"`,
-      `Total retract travel per hole: ${fmt(s.holeDepth + s.retract)}"`,
-    ];
-    panelLines.forEach(l => { label(l, col2X, y2, 9.5, false); y2 += 14; });
+      `Total retract travel per hole: ${fmt(s.holeDepth + s.retract)}"  (every hole clears the panel by ${fmt(s.retract)}" before repositioning)`,
+    ].forEach(l => { label(l, col2X, y2, 9.5, false); y2 += 14; });
 
-    y = Math.max(y, y2) + 10;
-    line(y); y += 20;
+    y = Math.max(y, y2) + 12; hr(y); y += 20;
 
-    // hole table, one column per plane
+    // panel diagram - native vector drawing from data, sized to fill the remaining page
     const totalHoles = PLANE_ORDER.reduce((sum,p) => sum + state[p].length, 0);
-    label(`HOLES  \u2014  ${totalHoles} total`, margin, y, 11, true); y += 16;
-    const holeColW = (pageW - 2*margin) / 4;
+    label(`PANEL LAYOUT \u2014 TOP VIEW  (${totalHoles} holes total)`, margin, y, 11, true);
+    y += 12;
+    const diagramTop = y;
+    const legendY = pageH - margin - 8;
+    const diagramMaxH = legendY - 18 - diagramTop;
+    const labelsBottom = drawPanelDiagram(doc, s, margin, diagramTop, pageW - 2*margin, diagramMaxH);
+    drawLegend(doc, margin, legendY);
+    doc.setFontSize(7.5); doc.setTextColor(150,150,150); doc.setFont('helvetica','normal');
+    doc.text('Values are hole position along that edge, measured from the 0,0 corner. Hole depth/retract are uniform per plane - see parameters above.', margin, legendY, { align: 'left' });
+
+    // page 2: hole table + checklist
+    doc.addPage();
+    y = margin;
+    label('HOLE POSITIONS', margin, y, 12, true); y += 20;
+    const holeColW = (pageW - 2*margin)/4;
     const holeRowStartY = y;
     let maxHoleRows = 0;
     PLANE_ORDER.forEach((plane, i) => {
       const cx = margin + i*holeColW;
-      const angle = PLANES[plane].angle;
-      label(`${plane}  (C${angle})`, cx, holeRowStartY, 10, true);
-      doc.setTextColor(90,90,90); doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
+      doc.setDrawColor(220); doc.line(cx, holeRowStartY-14, cx, holeRowStartY+150);
+      label(`${plane}  (C${PLANES[plane].angle})`, cx+6, holeRowStartY, 10, true);
+      doc.setTextColor(90,90,90); doc.setFont('helvetica','normal'); doc.setFontSize(9);
       if (state[plane].length === 0){
-        doc.text('(no holes)', cx, holeRowStartY + 14);
+        doc.text('(no holes)', cx+6, holeRowStartY + 16);
       } else {
         state[plane].forEach((hole, idx) => {
-          doc.text(`${plane[0]}${idx+1}:  ${fmt(hole.pos)}"`, cx, holeRowStartY + 14 + idx*12);
+          doc.text(`${plane[0]}${idx+1}:  ${fmt(hole.pos)}"`, cx+6, holeRowStartY + 16 + idx*14);
         });
       }
       maxHoleRows = Math.max(maxHoleRows, state[plane].length);
     });
-    y = holeRowStartY + 14 + Math.max(1, maxHoleRows)*12 + 14;
-    line(y); y += 20;
+    doc.setDrawColor(220); doc.line(pageW-margin, holeRowStartY-14, pageW-margin, holeRowStartY+150);
+    y = holeRowStartY + 16 + Math.max(1, maxHoleRows)*14 + 18;
+    hr(y); y += 20;
 
     // operator checklist
     label('OPERATOR CHECKLIST', margin, y, 11, true); y += 18;
@@ -1262,43 +1517,21 @@ async function generateCutSheet(){
     doc.setTextColor(30,30,30);
     checks.forEach(c => {
       doc.setDrawColor(120); doc.setLineWidth(0.75);
-      doc.rect(margin, y - 8, 9, 9);
+      doc.rect(margin, y-8, 9, 9);
       doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
-      doc.text(c, margin + 16, y);
+      doc.text(c, margin+16, y);
       y += 18;
     });
     y += 12;
-    doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(30,30,30);
     doc.text('Operator: ______________________________          Date: ______________', margin, y);
     y += 18;
-    doc.text('Notes:', margin, y); y += 4;
+    doc.text('Notes:', margin, y);
     doc.setDrawColor(220);
-    for (let i=0; i<3; i++){ y += 16; doc.line(margin, y, pageW-margin, y); }
+    for (let i=0; i<4; i++){ y += 18; doc.line(margin, y, pageW-margin, y); }
 
-    // page 2: visuals
-    doc.addPage();
-    y = margin;
-    label('PANEL SCHEMATIC (top view)', margin, y, 12, true); y += 14;
-    const schematicSvgStr = getCleanSvgStringForPrint('schematicSvg');
-    const schematicPng = await svgToPngDataUri(schematicSvgStr, 1000, 1000);
-    const schemSize = pageW - 2*margin;
-    doc.setDrawColor(210); doc.rect(margin, y, schemSize, schemSize);
-    doc.addImage(schematicPng, 'PNG', margin, y, schemSize, schemSize);
-    y += schemSize + 24;
-
-    label('TOOLPATH (NE ISO VIEW)', margin, y, 12, true); y += 14;
-    const isoSvgStr = getCleanSvgStringForPrint('isoSvg');
-    const isoW = pageW - 2*margin, isoH = isoW * (380/560);
-    const isoPng = await svgToPngDataUri(isoSvgStr, 1120, 1120*(380/560));
-    doc.setDrawColor(210); doc.rect(margin, y, isoW, isoH);
-    doc.addImage(isoPng, 'PNG', margin, y, isoW, isoH);
-
-    doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    doc.setTextColor(150,150,150);
-    doc.setPage(1);
-    doc.text('Page 1 of 2', pageW/2, pageH - 20, { align: 'center' });
-    doc.setPage(2);
-    doc.text('Page 2 of 2', pageW/2, pageH - 20, { align: 'center' });
+    footer(1, 2);
+    footer(2, 2);
 
     const base = sanitizeFilename(s.jobName) || 'camlock_holes';
     doc.save(base + '_cutsheet.pdf');
@@ -1376,7 +1609,7 @@ document.getElementById('loadFileInput').addEventListener('change', (e) => {
 
 /* ---------- init ---------- */
 loadSettings();
-document.querySelectorAll('input[id]').forEach(inp => inp.addEventListener('input', onSetupFieldChange));
+document.querySelectorAll('input[id]').forEach(inp => { if (inp.id !== 'simScrub') inp.addEventListener('input', onSetupFieldChange); });
 updateDerived();
 renderAll();
 setupPanZoom('schematicSvg', schematicView);
