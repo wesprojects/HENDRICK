@@ -128,6 +128,7 @@
   .load-status{ font-family: var(--mono); font-size: 10.5px; margin-top: 8px; min-height: 14px; }
 
   .schematic-wrap{ position: sticky; top: 20px; }
+  .schematic{ position: relative; }
   .schematic svg{ width:100%; height:auto; display:block; cursor: grab; touch-action: none; }
   .schematic svg:active{ cursor: grabbing; }
   .view-controls{ display:flex; align-items:center; gap:6px; margin-top:10px; flex-wrap:wrap; }
@@ -149,9 +150,15 @@
   .sim-controls input[type="range"]{ flex: 1 1 100px; min-width: 80px; accent-color: var(--amber); }
   .sim-status{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); min-width: 120px; white-space: nowrap; }
   .view-controls button.active{ border-color: var(--amber); color: var(--amber); }
-  .sim-xyz{ display:flex; gap:16px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border); }
-  .sim-xyz-item{ font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
-  .sim-xyz-item b{ color: var(--text); font-weight: 600; margin-left: 4px; }
+  .sim-xyz{
+    position: absolute; top: 10px; left: 10px; z-index: 2; pointer-events: none;
+    display:flex; flex-direction: column; gap: 3px;
+    background: rgba(14,16,18,0.82); border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 10px;
+  }
+  .sim-xyz-item{ font-family: var(--mono); font-size: 12px; color: var(--text-dim); display:flex; align-items:baseline; gap: 10px; }
+  .sim-xyz-item .lbl{ min-width: 10px; text-align:left; }
+  .sim-xyz-item b{ color: var(--text); font-weight: 600; min-width: 62px; text-align: right; }
   .view-sep{ width:1px; height:16px; background: var(--border); margin: 0 4px; }
   .legend{ display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
   .legend .item{ display:flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
@@ -340,7 +347,14 @@
 
   <div class="panel">
     <h2 class="section-title">TOOLPATH &mdash; NE ISO VIEW</h2>
-    <div class="schematic"><svg id="isoSvg" viewBox="0 0 560 380"></svg></div>
+    <div class="schematic">
+      <svg id="isoSvg" viewBox="0 0 560 380"></svg>
+      <div class="sim-xyz" id="simXYZ">
+        <span class="sim-xyz-item"><span class="lbl">X</span> <b id="simXVal">&mdash;</b></span>
+        <span class="sim-xyz-item"><span class="lbl">Y</span> <b id="simYVal">&mdash;</b></span>
+        <span class="sim-xyz-item"><span class="lbl">Z</span> <b id="simZVal">&mdash;</b></span>
+      </div>
+    </div>
     <div class="view-controls">
       <button data-view="iso" data-action="zoomout">&minus;</button>
       <button data-view="iso" data-action="reset">Reset view</button>
@@ -361,17 +375,12 @@
       <button id="simStepFwdBtn" title="Step forward one move">&#9197;</button>
       <input type="range" id="simScrub" min="0" max="1000" value="0" step="1">
       <select id="simSpeed" title="Playback speed">
-        <option value="0.5">0.5&times;</option>
-        <option value="1" selected>1&times;</option>
+        <option value="0.5" selected>0.5&times;</option>
+        <option value="1">1&times;</option>
         <option value="2">2&times;</option>
         <option value="4">4&times;</option>
       </select>
       <span class="sim-status" id="simStatus">Ready</span>
-    </div>
-    <div class="sim-xyz" id="simXYZ">
-      <span class="sim-xyz-item">X <b id="simXVal">&mdash;</b></span>
-      <span class="sim-xyz-item">Y <b id="simYVal">&mdash;</b></span>
-      <span class="sim-xyz-item">Z <b id="simZVal">&mdash;</b></span>
     </div>
     <div class="legend">
       <span class="item"><span class="dash"></span>rapid (G00, above panel)</span>
@@ -1019,7 +1028,7 @@ let simSegments = [];
 let simTotalTime = 0.001;
 let simTime = 0;
 let simPlaying = false;
-let simSpeed = 1;
+let simSpeed = 0.5;
 let simLastTs = null;
 let simRafId = null;
 
@@ -1169,7 +1178,10 @@ document.getElementById('simPlayBtn').addEventListener('click', () => { simPlayi
 document.getElementById('simStepFwdBtn').addEventListener('click', simStepForward);
 document.getElementById('simStepBackBtn').addEventListener('click', simStepBack);
 document.getElementById('simResetBtn').addEventListener('click', simReset);
-document.getElementById('simSpeed').addEventListener('change', (e) => { simSpeed = parseFloat(e.target.value) || 1; });
+document.getElementById('simSpeed').addEventListener('change', (e) => {
+  simSpeed = parseFloat(e.target.value) || 0.5;
+  try { localStorage.setItem('camlockSimSpeed_v1', String(simSpeed)); } catch(e){ /* storage unavailable */ }
+});
 document.getElementById('simScrub').addEventListener('input', (e) => {
   pauseSim();
   const frac = parseInt(e.target.value, 10) / 1000;
@@ -1719,6 +1731,13 @@ document.getElementById('loadFileInput').addEventListener('change', (e) => {
 
 /* ---------- init ---------- */
 loadSettings();
+try {
+  const savedSpeed = localStorage.getItem('camlockSimSpeed_v1');
+  if (savedSpeed){
+    simSpeed = parseFloat(savedSpeed) || 0.5;
+    document.getElementById('simSpeed').value = String(simSpeed);
+  }
+} catch(e){ /* storage unavailable - keep the 0.5x default */ }
 document.querySelectorAll('input[id]').forEach(inp => { if (inp.id !== 'simScrub') inp.addEventListener('input', onSetupFieldChange); });
 updateDerived();
 renderAll();
