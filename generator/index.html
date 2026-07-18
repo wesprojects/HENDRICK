@@ -558,11 +558,11 @@ function nowStamp(){
   const p2 = (v) => String(v).padStart(2, '0');
   const dd = p2(d.getDate());
   const mm = p2(d.getMonth() + 1);
-  const yy = p2(d.getFullYear() % 100);
+  const yyyy = d.getFullYear();
   const HH = p2(d.getHours());
   const MI = p2(d.getMinutes());
   const SS = p2(d.getSeconds());
-  return `${dd}-${mm}-${yy} ${HH}:${MI}:${SS}`;
+  return `${dd}-${mm}-${yyyy} ${HH}:${MI}:${SS}`;
 }
 function num(id, fallback){
   const v = parseFloat(document.getElementById(id).value);
@@ -1663,14 +1663,16 @@ async function generateCutSheet(){
     y = margin;
     try { doc.addImage('data:image/png;base64,' + PRINT_LOGO_B64, 'PNG', pageW - margin - 110, y - 4, 110, 25.8); } catch(e){}
     label(`PANEL LAYOUT \u2014 TOP VIEW`, margin, y + 8, 12, true);
-    y += 26;
-    drawLegend(doc, pageW/2, y, 'center');
     y += 20;
     const diagramTop = y;
     const legendY = pageH - margin - 8;
     const captionY = legendY - 13;
     const diagramMaxH = captionY + 4 - diagramTop;
     drawPanelDiagram(doc, s, margin, diagramTop, pageW - 2*margin, diagramMaxH);
+    // legend sits inside the diagram's own reserved top padding (mostly empty space above the
+    // panel rectangle) rather than a separate row - reads as part of the layout view, not the
+    // page header, and is always clear of BACK-plane tick labels regardless of panel proportions.
+    drawLegend(doc, pageW/2, diagramTop + 24, 'center');
     doc.setFontSize(7.5); doc.setTextColor(150,150,150); doc.setFont('helvetica','normal');
     doc.text('Position = distance from the 0,0 corner. Depth/retract are uniform per plane (see parameters above).', margin, captionY);
 
