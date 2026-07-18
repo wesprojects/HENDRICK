@@ -1009,17 +1009,21 @@ let simLastTs = null;
 let simRafId = null;
 
 function buildSimSegments(waypoints, s){
-  const RAPID_SPEED = 340;
+  // F values in the g-code are inches PER MINUTE (standard CNC convention) - convert to
+  // inches/sec for the animation clock. Rapid rate isn't programmed in the g-code (G00 just
+  // uses the machine's max rapid), so assume a representative rate for this class of router.
+  const RAPID_IPM = 700;
+  const RAPID_SPEED = RAPID_IPM / 60;
   const feedInRate = Math.max(parseFloat(s.feedIn) || 100, 1);
   const feedOutRate = Math.max(parseFloat(s.feedOut) || 100, 1);
-  const feedSpeed = ((feedInRate + feedOutRate) / 2) * 1.3;
+  const feedSpeed = ((feedInRate + feedOutRate) / 2) / 60;
   const segments = [];
   let cum = 0;
   for (let i = 1; i < waypoints.length; i++){
     const a = waypoints[i-1], b = waypoints[i];
     const dist = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
     const speed = b.type === 'rapid' ? RAPID_SPEED : feedSpeed;
-    const duration = Math.max(dist / speed, 0.035);
+    const duration = Math.max(dist / speed, 0.08);
     segments.push({ a, b, dist, duration, cumStart: cum, cumEnd: cum + duration, type: b.type, plane: b.plane });
     cum += duration;
   }
