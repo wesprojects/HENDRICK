@@ -49,6 +49,13 @@
   .panel + .panel{ margin-top: 18px; }
   .section-title{ font-size: 13px; margin:0 0 14px; letter-spacing: 0.5px; color: var(--text-dim); font-weight: 600; }
 
+  .tool-panel-row{ display:grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+  .tool-panel-row + .panel{ margin-top: 18px; }
+  .tool-panel-row .panel + .panel{ margin-top: 0; }
+  .setup-grid-2col{ display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 700px){ .tool-panel-row{ grid-template-columns: 1fr; } }
+  @media (max-width: 480px){ .setup-grid-2col{ grid-template-columns: 1fr; } }
+
   .setup-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   @media (max-width: 700px){ .setup-grid{ grid-template-columns: 1fr 1fr; } }
   .field label{ display:block; font-family: var(--mono); font-size: 10px; color: var(--text-dim); text-transform:uppercase; letter-spacing: 0.5px; margin-bottom: 5px;}
@@ -189,31 +196,38 @@
     </div>
   </div>
 
-  <div class="panel">
-    <h2 class="section-title">PANEL &amp; TOOL SETUP</h2>
-    <div class="setup-grid">
-      <div class="field">
-        <label>Tool offset (bit length)</label>
-        <input id="g-bitoffset" type="text" value="2">
-        <div class="derived">Added to X or Y at each edge, along with tool holder offset.</div>
+  <div class="tool-panel-row">
+    <div class="panel">
+      <h2 class="section-title">TOOL SETUP</h2>
+      <div class="setup-grid-2col">
+        <div class="field">
+          <label>Tool offset (bit length)</label>
+          <input id="g-bitoffset" type="text" value="2">
+          <div class="derived">Added to X or Y at each edge, along with tool holder offset.</div>
+        </div>
+        <div class="field">
+          <label>Tool holder offset (aggregate)</label>
+          <input id="g-tooloffset" type="text" value="3.484252">
+          <div class="derived">Added to X or Y at each edge, along with tool offset.</div>
+        </div>
       </div>
-      <div class="field">
-        <label>Panel thickness</label>
-        <input id="g-thickness" type="text" value="0.75">
-        <div class="derived">Z0 = bottom face. Drill Z (center) = thickness &divide; 2 = <b id="zDerived">0.375</b></div>
-      </div>
-      <div class="field">
-        <label>Panel width (X)</label>
-        <input id="g-width" type="text" value="2">
-      </div>
-      <div class="field">
-        <label>Panel length (Y)</label>
-        <input id="g-length" type="text" value="28">
-      </div>
-      <div class="field">
-        <label>Tool holder offset (aggregate)</label>
-        <input id="g-tooloffset" type="text" value="3.484252">
-        <div class="derived">Added to X or Y at each edge, along with tool offset.</div>
+    </div>
+    <div class="panel">
+      <h2 class="section-title">PANEL SETUP</h2>
+      <div class="setup-grid-2col">
+        <div class="field">
+          <label>Panel width (X)</label>
+          <input id="g-width" type="text" value="2">
+        </div>
+        <div class="field">
+          <label>Panel length (Y)</label>
+          <input id="g-length" type="text" value="28">
+        </div>
+        <div class="field">
+          <label>Panel thickness</label>
+          <input id="g-thickness" type="text" value="0.75">
+          <div class="derived">Z0 = bottom face. Drill Z (center) = thickness &divide; 2 = <b id="zDerived">0.375</b></div>
+        </div>
       </div>
     </div>
   </div>
