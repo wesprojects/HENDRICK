@@ -193,14 +193,14 @@
     <h2 class="section-title">PANEL &amp; TOOL SETUP</h2>
     <div class="setup-grid">
       <div class="field">
-        <label>Bit offset</label>
+        <label>Tool offset (bit length)</label>
         <input id="g-bitoffset" type="text" value="2">
-        <div class="derived">Added to X or Y at each edge, along with tool offset.</div>
+        <div class="derived">Added to X or Y at each edge, along with tool holder offset.</div>
       </div>
       <div class="field">
-        <label>Tool offset</label>
-        <input id="g-tooloffset" type="text" value="3.484252">
-        <div class="derived">Added to X or Y at each edge, along with bit offset.</div>
+        <label>Panel thickness</label>
+        <input id="g-thickness" type="text" value="0.75">
+        <div class="derived">Z0 = bottom face. Drill Z (center) = thickness &divide; 2 = <b id="zDerived">0.375</b></div>
       </div>
       <div class="field">
         <label>Panel width (X)</label>
@@ -211,9 +211,9 @@
         <input id="g-length" type="text" value="28">
       </div>
       <div class="field">
-        <label>Panel thickness</label>
-        <input id="g-thickness" type="text" value="0.75">
-        <div class="derived">Z0 = bottom face. Drill Z (center) = thickness &divide; 2 = <b id="zDerived">0.375</b></div>
+        <label>Tool holder offset (aggregate center to nose)</label>
+        <input id="g-tooloffset" type="text" value="3.484252">
+        <div class="derived">Added to X or Y at each edge, along with tool offset.</div>
       </div>
     </div>
   </div>
@@ -1580,8 +1580,8 @@ async function generateCutSheet(){
     label('PANEL & DRILLING PARAMETERS', col2X, y2, 10, true); y2 += 15;
     [
       `Panel: ${fmt(s.panelWidth)}" W  \u00d7  ${fmt(s.panelLength)}" L  \u00d7  ${fmt(s.thickness)}" thick`,
-      `Tool offset: ${fmt(s.toolOffset)}"      Bit offset: ${fmt(s.bitOffset)}"`,
-      `Total offset (tool + bit): ${fmt(s.totalOffset)}"`,
+      `Tool holder offset: ${fmt(s.toolOffset)}"      Tool offset (bit length): ${fmt(s.bitOffset)}"`,
+      `Total offset: ${fmt(s.totalOffset)}"`,
       `Hole depth: ${fmt(s.holeDepth)}"      Retract: ${fmt(s.retract)}"`,
       `Drill Z (center): ${fmt(s.thickness/2)}"`,
       `Safe Z clearance: ${fmt(s.safeZ)}"  (rapid Z = ${fmt(s.thickness + s.safeZ)}")`,
