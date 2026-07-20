@@ -85,6 +85,8 @@
   .field label{ display:block; font-family: var(--mono); font-size: 10px; color: var(--text-dim); text-transform:uppercase; letter-spacing: 0.5px; margin-bottom: 5px;}
   .field input{ width:100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-family: var(--mono); font-size: 13px; padding: 8px 9px; border-radius: 3px;}
   .field input:focus{ outline:none; border-color: var(--text-dim); }
+  .field input:disabled{ color: var(--text-dim); cursor: not-allowed; opacity: 0.65; }
+  .offset-unlock{ margin-top: 14px; }
   .field .derived{ font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); margin-top: 5px; }
   .field .derived b{ color: var(--text); font-weight:600; }
 
@@ -248,15 +250,16 @@
       <div class="setup-grid-2col">
         <div class="field">
           <label>Tool offset (bit length)</label>
-          <input id="g-bitoffset" type="text" value="1.5">
+          <input id="g-bitoffset" type="text" value="1.5" disabled>
           <div class="derived">Added to X or Y at each edge, along with tool holder offset.</div>
         </div>
         <div class="field">
           <label>Tool holder offset (aggregate)</label>
-          <input id="g-tooloffset" type="text" value="3.484252">
+          <input id="g-tooloffset" type="text" value="3.484252" disabled>
           <div class="derived">Added to X or Y at each edge, along with tool offset.</div>
         </div>
       </div>
+      <label class="checkbox-label offset-unlock"><input id="s-unlock-offsets" type="checkbox"> Unlock to edit these values</label>
     </div>
     <div class="panel">
       <h2 class="section-title">PANEL SETUP</h2>
@@ -743,7 +746,7 @@ function planeDepthRefs(planeName, s){
 function saveSettings(){
   const obj = {};
   document.querySelectorAll('input[id]').forEach(inp => {
-    if (inp.id === 'g-jobname' || inp.id === 'g-qty' || inp.id === 'simScrub') return; // job-specific / transient playback UI, not persisted
+    if (inp.id === 'g-jobname' || inp.id === 'g-qty' || inp.id === 'simScrub' || inp.id === 's-unlock-offsets') return; // job-specific / transient playback UI / always-starts-locked, not persisted
     obj[inp.id] = (inp.type === 'checkbox') ? inp.checked : inp.value;
   });
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch(e){ /* storage unavailable */ }
@@ -754,7 +757,7 @@ function loadSettings(){
     if (!raw) return;
     const obj = JSON.parse(raw);
     Object.keys(obj).forEach(id => {
-      if (id === 'g-jobname' || id === 'g-qty' || id === 'simScrub') return;
+      if (id === 'g-jobname' || id === 'g-qty' || id === 'simScrub' || id === 's-unlock-offsets') return;
       const el = document.getElementById(id);
       if (!el) return;
       if (el.type === 'checkbox') el.checked = !!obj[id];
@@ -1897,6 +1900,11 @@ try {
   }
 } catch(e){ /* storage unavailable - keep the 0.5x default */ }
 document.querySelectorAll('input[id]').forEach(inp => { if (inp.id !== 'simScrub') inp.addEventListener('input', onSetupFieldChange); });
+document.getElementById('s-unlock-offsets').addEventListener('change', (e) => {
+  const unlocked = e.target.checked;
+  document.getElementById('g-bitoffset').disabled = !unlocked;
+  document.getElementById('g-tooloffset').disabled = !unlocked;
+});
 updateDerived();
 renderAll();
 setupPanZoom('schematicSvg', schematicView, 'schematic');
