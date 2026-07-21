@@ -70,6 +70,7 @@
   .badge{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); border: 1px solid var(--border); padding: 5px 10px; border-radius: 3px; white-space:nowrap;}
 
   .grid{ display:grid; grid-template-columns: 1.15fr 0.85fr; gap: 20px; align-items:start; }
+  .panel + .grid{ margin-top: 18px; }
   .grid > *{ min-width: 0; }
   @media (max-width: 880px){ .grid{ grid-template-columns: 1fr; } }
 
@@ -488,7 +489,7 @@
 const COLORS = { FRONT: '#f4a623', LEFT: '#3ddc84', BACK: '#5aa9e6', RIGHT: '#b98cf0' };
 // Single source of truth for the build stamp shown in the header AND the update-check below -
 // bump this string on every revision. Everything else (visible stamp, update detection) reads it.
-const BUILD_VERSION = '2026-07-21.2';
+const BUILD_VERSION = '2026-07-21.3';
 document.getElementById('buildStamp').textContent = 'Build ' + BUILD_VERSION;
 
 // Self-update check: fetches this same page with a cache-busting query param, which forces a
