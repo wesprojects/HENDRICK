@@ -78,10 +78,17 @@
   .panel + .panel{ margin-top: 18px; }
   .section-title{ font-size: 13px; margin:0 0 14px; letter-spacing: 0.5px; color: var(--text-dim); font-weight: 600; }
 
-  .jobname-row{ display:flex; gap: 14px; align-items: flex-start; }
-  .jobname-field{ flex: 1 1 auto; min-width: 0; }
+  .jobname-row{ display:flex; gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+  .jobname-field{ flex: 1 1 220px; min-width: 0; }
   .jobname-qty-field{ flex: 0 0 120px; }
-  .label-spacer{ visibility: hidden; }
+  .jobname-location-field{ flex: 1 1 260px; min-width: 0; }
+  .joblocation-input-row{ display:flex; gap: 8px; }
+  .joblocation-input-row input{ flex: 1 1 auto; min-width: 0; }
+  .joblocation-input-row button{
+    flex: 0 0 auto; background: transparent; border: 1px solid var(--border); color: var(--text);
+    font-family: var(--mono); font-size: 12px; padding: 0 12px; border-radius: 3px; cursor: pointer; white-space: nowrap;
+  }
+  .joblocation-input-row button:hover{ border-color: var(--text-dim); }
   @media (max-width: 480px){ .jobname-row{ flex-direction: column; } .jobname-qty-field{ flex-basis: auto; width: 100%; } }
 
   .setup-grid{ display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
@@ -240,14 +247,23 @@
     <h2 class="section-title">JOB INFORMATION</h2>
     <div class="jobname-row">
       <div class="field jobname-field">
-        <label class="label-spacer">&nbsp;</label>
+        <label>Job Name</label>
         <input id="g-jobname" type="text" value="" placeholder="e.g. Conklin_Bookcase_SidePanel">
-        <div class="derived">Used as the .nc filename when you download, and recorded in the g-code header.</div>
+        <div class="derived">Filename for the GCODE file (.nc)</div>
       </div>
       <div class="field jobname-qty-field">
         <label>Qty</label>
         <input id="g-qty" type="text" value="1" placeholder="Qty">
         <div class="derived">Number of parts</div>
+      </div>
+      <div class="field jobname-location-field">
+        <label>Job Location</label>
+        <div class="joblocation-input-row">
+          <input id="g-joblocation" type="text" placeholder="\\server\share\Jobs\...">
+          <button id="jobLocationBrowseBtn" type="button">Browse&hellip;</button>
+          <input type="file" id="jobLocationPicker" webkitdirectory style="display:none">
+        </div>
+        <div class="derived">Save location for job files</div>
       </div>
     </div>
     <div class="setup-grid" style="margin-top: 14px;">
@@ -489,7 +505,7 @@
 const COLORS = { FRONT: '#f4a623', LEFT: '#3ddc84', BACK: '#5aa9e6', RIGHT: '#b98cf0' };
 // Single source of truth for the build stamp shown in the header AND the update-check below -
 // bump this string on every revision. Everything else (visible stamp, update detection) reads it.
-const BUILD_VERSION = '2026-07-21.3';
+const BUILD_VERSION = '2026-07-21.5';
 document.getElementById('buildStamp').textContent = 'Build ' + BUILD_VERSION;
 
 // Self-update check: fetches this same page with a cache-busting query param, which forces a
@@ -535,6 +551,36 @@ const PLANES = {
   BACK:  { angle: -90,  edgeAxis: 'x', depthAxis: 'y', depthSign: -1, edgeRefKey: 'length' },
   RIGHT: { angle: 180,  edgeAxis: 'y', depthAxis: 'x', depthSign: -1, edgeRefKey: 'width'  },
 };
+
+// Directory handle for the chosen Job Location folder - only populated in browsers that support
+// the File System Access API (Chrome/Edge; Firefox and Safari don't implement it). When present,
+// downloads write straight into that folder with no repeated save dialog. When absent (API
+// unsupported, or no folder chosen yet), everything falls back to a normal browser download -
+// the feature quietly degrades rather than breaking.
+let jobLocationDirHandle = null;
+
+async function saveFileToJobLocation(blob, filename){
+  if (jobLocationDirHandle){
+    try {
+      const fileHandle = await jobLocationDirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      showLoadStatus(`Saved "${filename}" to ${document.getElementById('g-joblocation').value}`, false);
+      return;
+    } catch(e){
+      showLoadStatus(`Could not save to job location (${e.message}) - downloaded normally instead.`, true);
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // Hole positions are intentionally NOT persisted to localStorage - only setup/parameter fields are.
 let state = {
@@ -738,6 +784,7 @@ function getSettings(){
   return {
     jobName: document.getElementById('g-jobname').value.trim(),
     qty: num('g-qty', 1),
+    jobLocation: document.getElementById('g-joblocation').value.trim(),
     toolOffset: toolOffset,
     bitOffset: bitOffset,
     slot2Offset: num('g-slot2offset', 0),
@@ -805,7 +852,7 @@ function planeDepthRefs(planeName, s){
 function saveSettings(){
   const obj = {};
   document.querySelectorAll('input[id]').forEach(inp => {
-    if (inp.id === 'g-jobname' || inp.id === 'g-qty' || inp.id === 'simScrub' || inp.id === 's-unlock-offsets' || inp.id === 's-unlock-drilling') return; // job-specific / transient playback UI / always-starts-locked, not persisted
+    if (inp.id === 'g-jobname' || inp.id === 'g-qty' || inp.id === 'g-joblocation' || inp.id === 'simScrub' || inp.id === 's-unlock-offsets' || inp.id === 's-unlock-drilling') return; // job-specific / transient playback UI / always-starts-locked, not persisted
     obj[inp.id] = (inp.type === 'checkbox') ? inp.checked : inp.value;
   });
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch(e){ /* storage unavailable */ }
@@ -816,7 +863,7 @@ function loadSettings(){
     if (!raw) return;
     const obj = JSON.parse(raw);
     Object.keys(obj).forEach(id => {
-      if (id === 'g-jobname' || id === 'g-qty' || id === 'simScrub' || id === 's-unlock-offsets' || id === 's-unlock-drilling') return;
+      if (id === 'g-jobname' || id === 'g-qty' || id === 'g-joblocation' || id === 'simScrub' || id === 's-unlock-offsets' || id === 's-unlock-drilling') return;
       const el = document.getElementById(id);
       if (!el) return;
       if (el.type === 'checkbox') el.checked = !!obj[id];
@@ -1430,6 +1477,7 @@ function computeProgram(sIn){
 
   const paramsObj = {
     jobName: s.jobName,
+    jobLocation: s.jobLocation,
     qty: s.qty,
     toolOffset: s.toolOffset, bitOffset: s.bitOffset, slot2Offset: s.slot2Offset, panelWidth: s.panelWidth, panelLength: s.panelLength, thickness: s.thickness,
     holeDepth: s.holeDepth, holeDepthDowel: s.holeDepthDowel, retract: s.retract, safeZ: s.safeZ, spindle: s.spindle, feedIn: s.feedIn, feedOut: s.feedOut,
@@ -1569,14 +1617,7 @@ document.getElementById('downloadBtn').onclick = () => {
   const out = document.getElementById('gcodeOut');
   const raw = out.dataset.raw || out.textContent;
   const blob = new Blob([raw], {type: 'text/plain'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = getFilename();
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  saveFileToJobLocation(blob, getFilename());
 };
 
 /* ---------- cut sheet (PDF) ----------
@@ -1891,7 +1932,7 @@ async function generateCutSheet(){
     doc.text('Page 2 of 2', pageW/2, pageH - 20, { align: 'center' });
 
     const base = sanitizeFilename(s.jobName) || 'camlock_holes';
-    doc.save(base + '_cutsheet.pdf');
+    await saveFileToJobLocation(doc.output('blob'), base + '_cutsheet.pdf');
   } catch(err){
     alert('Could not generate the cut sheet: ' + err.message);
   } finally {
@@ -1947,6 +1988,7 @@ function loadFromCode(text){
     return;
   }
   setVal('g-jobname', p.jobName);
+  setVal('g-joblocation', p.jobLocation);
   setVal('g-qty', p.qty !== undefined ? p.qty : 1); // older files predate qty - default to 1
   setVal('g-tooloffset', p.toolOffset);
   setVal('g-bitoffset', p.bitOffset !== undefined ? p.bitOffset : 0); // old files predate bit offset - 0 preserves their original total exactly
@@ -1982,6 +2024,43 @@ function loadFromCode(text){
 }
 
 document.getElementById('loadFileBtn').onclick = () => document.getElementById('loadFileInput').click();
+// Browsers deliberately never expose a full filesystem/network path for a selected folder (a
+// security restriction, not a bug) - webkitRelativePath only gives the folder's own name, not
+// the drive/share path leading to it. This fills in that name and leaves the field editable so
+// the user can complete the full \\server\share\... path themselves if they need it recorded.
+// In Chrome/Edge, showDirectoryPicker() grants an actual writable handle to the chosen folder,
+// so downloads can write straight into it (see saveFileToJobLocation). Firefox and Safari don't
+// implement this API at all, so there we fall back to the older webkitdirectory input, which can
+// only reveal the folder's name for reference - not a security bug, just a browser gap; downloads
+// there still work normally, they just aren't written directly into that folder.
+document.getElementById('jobLocationBrowseBtn').onclick = async () => {
+  if (window.showDirectoryPicker){
+    try {
+      const handle = await window.showDirectoryPicker();
+      const perm = await handle.requestPermission({ mode: 'readwrite' });
+      document.getElementById('g-joblocation').value = handle.name;
+      if (perm === 'granted'){
+        jobLocationDirHandle = handle;
+        showLoadStatus(`Cut sheets and .nc downloads will now save directly into "${handle.name}".`, false);
+      } else {
+        jobLocationDirHandle = null;
+        showLoadStatus(`Folder name recorded, but write access wasn't granted - downloads will save normally.`, true);
+      }
+    } catch(e){
+      // user cancelled the picker - leave everything as it was
+    }
+  } else {
+    document.getElementById('jobLocationPicker').click();
+  }
+};
+document.getElementById('jobLocationPicker').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file || !file.webkitRelativePath) return;
+  const folderName = file.webkitRelativePath.split('/')[0];
+  document.getElementById('g-joblocation').value = folderName;
+  jobLocationDirHandle = null; // this path only gives a name, never a writable handle
+  e.target.value = '';
+});
 document.getElementById('loadFileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
