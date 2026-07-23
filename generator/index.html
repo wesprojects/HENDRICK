@@ -169,6 +169,9 @@
   }
   .output-actions button:hover{ border-color: var(--text-dim); }
   .output-actions button.copied{ border-color: var(--green); color: var(--green); }
+  .output-actions button:disabled{ opacity: 0.4; cursor: not-allowed; }
+  .output-actions button:disabled:hover{ border-color: var(--border); }
+  .preview-title{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; font-weight: 600; }
   .output-actions .generate-btn{
     display:inline-block; width:auto; margin-top:0; font-size: 12px; padding: 6px 14px;
     border:none; border-radius: 3px;
@@ -369,12 +372,18 @@
             <button id="loadFileBtn">Load File</button>
             <input type="file" id="loadFileInput" accept=".nc,.txt" style="display:none">
             <button id="copyBtn">Copy</button>
-            <button id="downloadBtn">Download .nc</button>
-            <button id="cutSheetBtn">Download Cut-sheet</button>
+            <button id="downloadBtn" disabled>Download .nc</button>
+            <button id="cutSheetBtn" disabled>Download Cut-sheet</button>
             <button id="quickRefBtn">Quick Reference Card</button>
           </div>
         </div>
-        <pre id="gcodeOut">&mdash; click Generate G-Code &mdash;</pre>
+        <div class="collapsible-toggle" id="previewToggle">
+          <span class="preview-title">G-CODE PREVIEW</span>
+          <span class="chev" id="previewChev">&#9656;</span>
+        </div>
+        <div class="collapsible-body" id="previewBody">
+          <pre id="gcodeOut">&mdash; click Generate G-Code &mdash;</pre>
+        </div>
         <div class="load-status" id="loadStatus"></div>
       </div>
 
@@ -515,7 +524,7 @@
 const COLORS = { FRONT: '#f4a623', LEFT: '#3ddc84', BACK: '#5aa9e6', RIGHT: '#b98cf0' };
 // Single source of truth for the build stamp shown in the header AND the update-check below -
 // bump this string on every revision. Everything else (visible stamp, update detection) reads it.
-const BUILD_VERSION = '2026-07-21.8';
+const BUILD_VERSION = '2026-07-21.10';
 document.getElementById('buildStamp').textContent = 'Build ' + BUILD_VERSION;
 
 // Self-update check: fetches this same page with a cache-busting query param, which forces a
@@ -1474,6 +1483,12 @@ document.getElementById('drillingToggle').onclick = () => {
   const open = body.classList.toggle('open');
   chev.innerHTML = open ? '&#9662;' : '&#9656;';
 };
+document.getElementById('previewToggle').onclick = () => {
+  const body = document.getElementById('previewBody');
+  const chev = document.getElementById('previewChev');
+  const open = body.classList.toggle('open');
+  chev.innerHTML = open ? '&#9662;' : '&#9656;';
+};
 
 /* ---------- core generator (shared by text output + both visuals) ----------
    Z0 = bottom face of the panel. +Z travels upward.
@@ -1525,7 +1540,7 @@ function computeProgram(sIn){
   N(`(UAO,${s.origin})`);
   N('G70');
   N('M604');
-  N(`T${s.tool}`);
+  N(`M06 T${String(s.tool).padStart(2, '0')}`);
   N(`M03 S${s.spindle}`);
 
   const activePlanes = PLANE_ORDER.filter(p => state[p].length > 0);
@@ -1599,6 +1614,7 @@ function computeProgram(sIn){
 document.getElementById('generateBtn').onclick = () => {
   const { code } = computeProgram();
   renderCodeOutput(code);
+  showLoadStatus(`G-code generated (${code.split('\n').length} lines) - ready to download.`, false);
 };
 
 function renderCodeOutput(code){
@@ -1614,6 +1630,9 @@ function renderCodeOutput(code){
     return line;
   }).join('\n');
   out.dataset.raw = code;
+  // real code now exists - the download actions become meaningful
+  document.getElementById('downloadBtn').disabled = false;
+  document.getElementById('cutSheetBtn').disabled = false;
 }
 
 document.getElementById('copyBtn').onclick = async () => {
