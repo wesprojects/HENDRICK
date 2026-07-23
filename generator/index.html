@@ -168,9 +168,18 @@
     font-family: var(--mono); font-size: 11.5px; padding: 6px 10px; border-radius: 3px; cursor:pointer;
   }
   .output-actions button:hover{ border-color: var(--text-dim); }
-  .output-actions button.copied{ border-color: var(--green); color: var(--green); }
   .output-actions button:disabled{ opacity: 0.4; cursor: not-allowed; }
   .output-actions button:disabled:hover{ border-color: var(--border); }
+  .preview-toggle-btn{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    width:100%; text-align:left; cursor:pointer;
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 9px 12px; margin-bottom: 4px; transition: border-color 0.12s, background 0.12s;
+  }
+  .preview-toggle-btn:hover{ border-color: var(--text-dim); background: var(--bg); }
+  .preview-toggle-btn:hover .preview-title,
+  .preview-toggle-btn:hover .chev{ color: var(--text); }
+  .preview-toggle-btn .chev{ color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
   .preview-title{ font-family: var(--mono); font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; font-weight: 600; }
   .output-actions .generate-btn{
     display:inline-block; width:auto; margin-top:0; font-size: 12px; padding: 6px 14px;
@@ -371,16 +380,15 @@
             <button class="generate-btn" id="generateBtn">Generate G-Code</button>
             <button id="loadFileBtn">Load File</button>
             <input type="file" id="loadFileInput" accept=".nc,.txt" style="display:none">
-            <button id="copyBtn">Copy</button>
             <button id="downloadBtn" disabled>Download .nc</button>
             <button id="cutSheetBtn" disabled>Download Cut-sheet</button>
             <button id="quickRefBtn">Quick Reference Card</button>
           </div>
         </div>
-        <div class="collapsible-toggle" id="previewToggle">
+        <button type="button" class="preview-toggle-btn" id="previewToggle">
           <span class="preview-title">G-CODE PREVIEW</span>
           <span class="chev" id="previewChev">&#9656;</span>
-        </div>
+        </button>
         <div class="collapsible-body" id="previewBody">
           <pre id="gcodeOut">&mdash; click Generate G-Code &mdash;</pre>
         </div>
@@ -524,7 +532,7 @@
 const COLORS = { FRONT: '#f4a623', LEFT: '#3ddc84', BACK: '#5aa9e6', RIGHT: '#b98cf0' };
 // Single source of truth for the build stamp shown in the header AND the update-check below -
 // bump this string on every revision. Everything else (visible stamp, update detection) reads it.
-const BUILD_VERSION = '2026-07-21.10';
+const BUILD_VERSION = '2026-07-21.12';
 document.getElementById('buildStamp').textContent = 'Build ' + BUILD_VERSION;
 
 // Self-update check: fetches this same page with a cache-busting query param, which forces a
@@ -1566,7 +1574,7 @@ function computeProgram(sIn){
         waypoints.push({x, y, z: curZ, type:'rapid', plane: planeName});
         if (!firstMoveDone){
           N('G27');
-          if (s.dropDustHood){ N('M49'); }
+          N(s.dropDustHood ? 'M49' : 'M48');
           N(`h${s.tool}`);
           firstMoveDone = true;
         }
@@ -1634,18 +1642,6 @@ function renderCodeOutput(code){
   document.getElementById('downloadBtn').disabled = false;
   document.getElementById('cutSheetBtn').disabled = false;
 }
-
-document.getElementById('copyBtn').onclick = async () => {
-  const out = document.getElementById('gcodeOut');
-  const raw = out.dataset.raw || out.textContent;
-  try {
-    await navigator.clipboard.writeText(raw);
-    const btn = document.getElementById('copyBtn');
-    btn.textContent = 'Copied';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1400);
-  } catch(e){ /* clipboard may be unavailable in sandboxed contexts */ }
-};
 
 document.getElementById('downloadBtn').onclick = () => {
   const out = document.getElementById('gcodeOut');
